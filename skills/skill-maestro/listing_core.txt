@@ -1,0 +1,13 @@
+# Skills whose descriptions stay in Claude's listing (everything else is name-only; listing.py keeps it so).
+# Keep this short: each line costs up to 1,536 characters in every session. Maestro and the whisper hook read
+# the other descriptions from disk.
+skill-maestro      # the router itself
+beginner-steps     # "how do I" asks must get steps in the FIRST reply
+escape-proof       # backslash trap before Bash heredocs
+guard-respect      # what to do when tv-guard blocks
+autotrade-start    # session start in C:\Autotrade
+land-a-change      # the landing ritual
+finish-everything  # before every final report
+open-steps-sweep   # before "what's left" / "done"
+decision-menu      # any list of things Max must decide
+numbers-pass       # before reporting a number

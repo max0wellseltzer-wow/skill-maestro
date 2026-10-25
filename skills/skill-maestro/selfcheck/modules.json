@@ -1,0 +1,108 @@
+{
+ "modules": {
+  "selftest": {
+   "consumes": [
+    "maestro"
+   ],
+   "produces": [
+    "selftest_log"
+   ],
+   "run": [
+    "python",
+    "{maestro}",
+    "--selftest"
+   ],
+   "capture": true,
+   "out": "selftest.txt"
+  },
+  "health": {
+   "consumes": [
+    "skills"
+   ],
+   "produces": [
+    "health_log"
+   ],
+   "run": [
+    "python",
+    "{skills}/skill-health/skill_health.py",
+    "--only",
+    "skill-maestro"
+   ],
+   "capture": true,
+   "out": "health.txt"
+  },
+  "graph": {
+   "consumes": [
+    "skills"
+   ],
+   "produces": [
+    "graph_log"
+   ],
+   "run": [
+    "python",
+    "{skills}/skill-graph/skill_graph.py",
+    "live",
+    "--node",
+    "skill-maestro"
+   ],
+   "capture": true,
+   "out": "graph.txt"
+  },
+  "findable": {
+   "consumes": [
+    "skills"
+   ],
+   "produces": [
+    "findable_log"
+   ],
+   "run": [
+    "python",
+    "{skills}/skill-finder/find_skill.py",
+    "which skills should I use for this task",
+    "--top",
+    "3"
+   ],
+   "capture": true,
+   "out": "findable.txt"
+  },
+  "eval": {
+   "consumes": [
+    "maestro",
+    "state",
+    "selftest_log"
+   ],
+   "produces": [
+    "eval_log"
+   ],
+   "run": [
+    "python",
+    "{maestro}",
+    "eval",
+    "--state",
+    "{state}"
+   ],
+   "capture": true,
+   "out": "eval.txt"
+  },
+  "tour": {
+   "consumes": [
+    "maestro",
+    "skills",
+    "selftest_log"
+   ],
+   "produces": [
+    "tour_log"
+   ],
+   "run": [
+    "python",
+    "{maestro_dir}/selfcheck/tour.py",
+    "{maestro}",
+    "{skills}",
+    "--project",
+    "{project}"
+   ],
+   "capture": true,
+   "out": "tour.txt"
+  }
+ }
+}

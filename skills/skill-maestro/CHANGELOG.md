@@ -1,0 +1,21 @@
+# skill-maestro changelog (one line per version; the full histories with every measurement are in the extras package, `skill-maestro-history/`)
+
+- v20 (2026-10-25): the essentials only. The research modules (conduct, inverse, introspect, rerank, fairness) moved to the package `skill-maestro-extras`; a core install prints a one-line hint when one of their commands is asked for and `--selftest` skips them. `intents/intents.json` and its last reader left. The histories, surveys and research notes left the package. SKILL.md halved.
+- v19c (2026-10-25): dial M52, the session's phase (which skills this machine's sessions reached for after the ones just used), landed with M51 as one tree.
+- v19b (2026-10-25): dial M51, the deliverable vote (C2 dataviz fix); the M19 paired run; the cold-library scenarios fixed.
+- v19 (2026-10-24): the sixteen v18 results fed back into the ranking; picks by meaning first (`meaning.py`, bge-small via fastembed, own venv, resident helper); `findable` evaluated; the audit of which results had changed behaviour and which had only been written down.
+- v18 (2026-10-24): dials M44 thompson_slots and M45 overlap_edges built, measured, left OFF; the walk-forward probe set (81 real prompts); `eval --misses`; `listing.py` UNTRUSTED PROJECT SKILLS IN SCOPE; the survey's fix list; 27 worst descriptions rewritten; the pressure test in three fresh sessions; root fixes to the fit gate.
+- v17 (2026-10-23/24): the survey (`cards/tested.jsonl`, every skill tested for real, M43 asks); a persona is a priced pick (M42); the STALE check on a changed subject; fixes borrowed from the shared repositories; the five-line SessionStart note.
+- v16 (2026-10-22): ten objectives measured the same evening (`O1_RERANK_2026-10-22.md`); the intents (doc2query) reading removed after ablation marked it COSTS; the lean listing (descriptions on disk, names in Claude's listing, 2026-10-23).
+- v15 (2026-10-22): the learned judge and its limits (`LEARNING_LIMITS_2026-10-22.md`); hindsight labels from past transcripts; every line measured.
+- v14 (2026-10-21): fairness (no skill favoured for being used more, for having more written about it, or for its source; `FAIRNESS.md`, `fairness.py`); `cards --auto` (a meaning line for every skill that has none); `findable`; `newskill`; `--no-ledger`; privacy.
+- v13 (2026-10-21): the cloud and PC lanes merged into one tree (no history file of its own; the v14 notes record the merge).
+- v12 (2026-10-20): the Maestro run on itself; every kind of task, every kind of person (v12b).
+- v11 (2026-10-20): every skill is a candidate, not only the custom library (`builtins.json`); triage first (SKIP / QUICK / FULL).
+- v10 (2026-10-19/20): think first, then fascinate; ponder, two ballots, proven scouts (v10c-d); it works in cloud sessions and their ratings survive.
+- v8 (2026-10-18): the Conductor's Protocol (`references/PROTOCOL.md`).
+- v7 (2026-10-18): plan the use, then prove each pick works on THE subject (`plan`, `try`, `fit`).
+- v6 (2026-10-18): menus and the owner's metrics; the experiment bench.
+- v5 (2026-10-18): purpose, reflection and the encore.
+- v4 (2026-10-18): rules from the owner's own protocols; the fit-first and excitement-tax dials.
+- v2 (2026-10-18): the first tool; design notes and the evidence behind it were `references/brainstorm_2026-10-18.md` (now in the extras package).

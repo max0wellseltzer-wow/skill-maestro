@@ -1,0 +1,18 @@
+{
+ "inputs": {
+  "skills": "",
+  "maestro": "",
+  "project": "",
+  "state": "",
+  "maestro_dir": ""
+ },
+ "steps": [
+  "selftest",
+  "health",
+  "graph",
+  "findable",
+  "eval",
+  "tour"
+ ],
+ "max_depth": 3
+}

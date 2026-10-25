@@ -1,0 +1,6 @@
+# machine-local files that must never ship in the package
+**/__pycache__/
+**/state/
+**/cards/mechanisms_auto.jsonl
+**/cards/owner_lexicon.json
+**/evals/harness/

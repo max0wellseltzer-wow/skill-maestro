@@ -1,0 +1,27 @@
+{
+  "maestro-selftest-passes": {
+    "cmd": ["python", "C:/Users/Max/.claude/skills/skill-maestro/maestro.py", "--selftest"],
+    "claim": "maestro.py --selftest prints SELFTEST PASS (every module's selftest included)",
+    "marker": {"file": "C:/Users/Max/.claude/skills/skill-maestro/maestro.py", "contains": "def _selftest("}
+  },
+  "maestro-dials-load": {
+    "cmd": ["python", "C:/Users/Max/.claude/skills/skill-maestro/maestro.py", "triage", "x", "--no-ledger"],
+    "claim": "the dial panel loads (EXPECTED_DIALS matches, no LOCKED dial changed) so any command runs",
+    "marker": {"file": "C:/Users/Max/.claude/skills/skill-maestro/maestro_dials.md", "contains": "EXPECTED_DIALS: 50"}
+  },
+  "maestro-doctor-clean": {
+    "cmd": ["python", "C:/Users/Max/.claude/skills/skill-maestro/maestro.py", "doctor", "--no-ledger"],
+    "claim": "a fresh-install check passes on this machine (index, meaning lines, hindsight cache, probes, cards current, pinned receipts)",
+    "marker": {"file": "C:/Users/Max/.claude/skills/skill-maestro/concert.py", "contains": "def pinned_receipts("}
+  },
+  "maestro-docs-match-code": {
+    "cmd": ["python", "C:/Users/Max/.claude/skills/doc-truth/doc_truth.py", "C:/Users/Max/.claude/skills/skill-maestro/SKILL.md"],
+    "claim": "every command SKILL.md shows still matches maestro.py (no MISSING_SCRIPT / UNKNOWN_FLAG / UNKNOWN_COMMAND)",
+    "marker": {"file": "C:/Users/Max/.claude/skills/skill-maestro/SKILL.md", "contains": "kind=yes|no"}
+  },
+  "maestro-eval-armed": {
+    "cmd": ["python", "C:/Users/Max/.claude/skills/skill-maestro/maestro.py", "eval", "--armed", "--probes", "C:/Users/Max/.claude/skills/skill-finder/probes_heldout.tsv"],
+    "claim": "the eval tripwire still finds planted skills from their own words (ARMED); run: python ~/.claude/skills/leitner-recheck/leitner.py run <state>/leitner_log.jsonl --checks <this file>",
+    "marker": {"file": "C:/Users/Max/.claude/skills/skill-finder/probes_heldout.tsv", "contains": "\t"}
+  }
+}
