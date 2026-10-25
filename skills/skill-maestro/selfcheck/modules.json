@@ -13,7 +13,8 @@
     "--selftest"
    ],
    "capture": true,
-   "out": "selftest.txt"
+   "out": "selftest.txt",
+   "timeout": 900
   },
   "health": {
    "consumes": [
@@ -82,7 +83,8 @@
     "{state}"
    ],
    "capture": true,
-   "out": "eval.txt"
+   "out": "eval.txt",
+   "timeout": 1800
   },
   "tour": {
    "consumes": [
@@ -102,7 +104,8 @@
     "{project}"
    ],
    "capture": true,
-   "out": "tour.txt"
+   "out": "tour.txt",
+   "timeout": 3600
   }
  }
 }

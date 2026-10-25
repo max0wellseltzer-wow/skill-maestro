@@ -44,6 +44,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 STATE = Path(os.environ.get("MAESTRO_STATE", Path.home() / ".claude" / "skill-maestro-state"))
+MODEL_CACHE = Path(os.environ.get("MAESTRO_MODEL_CACHE",            # v20.0.4: the downloaded model is immutable, so it
+                                  Path.home() / ".claude" / "skill-maestro-state" / "fastembed_cache"))   # lives in one place
+                                                                   # whatever --state says (a tour state used to re-download it)
 MODEL = os.environ.get("MAESTRO_MEANING_MODEL", "BAAI/bge-small-en-v1.5")
 VENV_PY = Path.home() / "venvs" / "maestro-meaning" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 # Background launches use pythonw on Windows: the venv's python.exe is a launcher that re-runs the base python.exe as a
@@ -165,7 +168,8 @@ def _model():
             from fastembed import TextEmbedding
         except ImportError as exc:
             raise MeaningUnavailable("meaning.py needs fastembed: run it with the maestro-meaning venv python (SHARING.md)") from exc
-        _MODEL["m"] = TextEmbedding(model_name=MODEL, cache_dir=str(STATE / "fastembed_cache"))
+        MODEL_CACHE.mkdir(parents=True, exist_ok=True)
+        _MODEL["m"] = TextEmbedding(model_name=MODEL, cache_dir=str(MODEL_CACHE))
     return _MODEL["m"]
 
 

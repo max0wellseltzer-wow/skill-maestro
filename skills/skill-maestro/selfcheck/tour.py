@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "evals"))
+from scenarios import stop_helpers                  # v20.0.4: the tour stops the meaning helpers it spawned
 
 
 def build_tours(maestro: Path, tmp: Path, lib: Path, st: Path) -> list[tuple]:
@@ -23,6 +27,7 @@ def build_tours(maestro: Path, tmp: Path, lib: Path, st: Path) -> list[tuple]:
     NOX = {"MAESTRO_EXTRAS": str(tmp / "no-extras")}   # v20: a core install, whatever is beside this copy
     return [
         ("help", 0, []),
+        ("index --build", 0, ["index", "--build", *S], "INDEX"),   # v20.0.4: first, so every score below reads the prepared index
         ("--selftest", 0, ["--selftest"]),
         ("score plain", 0, ["score", "check whether a forward test result is real", *S]),
         ("score --pool --top 4", 0, ["score", "land a branch safely with tests", "--pool", "--top", "4", *S]),
@@ -141,9 +146,10 @@ def main(argv: list[str]) -> int:
     M = [sys.executable, "-B", str(maestro)]
     cwd = str(project) if project else str(tmp)
     tours = build_tours(maestro, tmp, lib, st)
-    bad = 0
+    bad, t_all = 0, time.time()
     for label, want, args, *expect in tours:
         env_extra = expect[1] if len(expect) > 1 else {}
+        t0 = time.time()
         try:
             r = subprocess.run([*M, *args], cwd=str(tmp) if label.startswith("STANDALONE") else cwd,   # no project library
                                capture_output=True, text=True, timeout=900, encoding="utf-8", errors="replace",
@@ -156,13 +162,20 @@ def main(argv: list[str]) -> int:
         ok = (want is None or rc == want) and not tb and phrase_ok   # None: any exit, but never a traceback
         bad += not ok
         first = next((ln for ln in out.splitlines() if ln.strip() and not ln.startswith(("(last", "STANDALONE"))), "")[:70]
-        print(f"{'ok  ' if ok else 'BAD '} {label:<34} exit={rc}{'' if rc == want else f' (want {want})'}"
+        if tb:                                            # v20.0.4: the exception line, not the "Traceback" header
+            first = next((ln for ln in reversed(out.splitlines()) if ln.strip()), first)[:70]
+        print(f"{'ok  ' if ok else 'BAD '} {label:<34} {time.time() - t0:5.1f}s exit={rc}{'' if rc == want else f' (want {want})'}"
               f"{' TRACEBACK' if tb else ''}{'' if phrase_ok else f' (missing {expect[0]!r})'} | {first}")
         if label == "STANDALONE foreign library" and ok:
             if "STANDALONE" not in out or "alpha-tool" not in out or "ON THE PC" in out:
                 bad += 1
                 print("BAD  standalone output: expected STANDALONE + alpha-tool, no ON THE PC line")
-    print(f"TOUR {'PASS' if not bad else 'FAIL'}: {len(tours) - bad}/{len(tours)} invocations as expected ({tmp})")
+    for sd in (st, tmp / "state2", tmp / "state3"):     # v20.0.4: the helpers the tours spawned, then the folder itself
+        if sd.is_dir():
+            stop_helpers(sd)
+    shutil.rmtree(tmp, ignore_errors=True)
+    print(f"TOUR {'PASS' if not bad else 'FAIL'}: {len(tours) - bad}/{len(tours)} invocations as expected, "
+          f"{time.time() - t_all:.0f} s, temp folder {'removed' if not tmp.exists() else 'left: ' + str(tmp)}")
     return 0 if not bad else 1
 
 
