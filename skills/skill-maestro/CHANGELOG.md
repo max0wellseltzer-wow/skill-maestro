@@ -1,5 +1,6 @@
 # skill-maestro changelog (one line per version; the full histories with every measurement are in the extras package, `skill-maestro-history/`)
 
+- v20.0.1 (2026-10-25): `references/leitner_checks.json` carries paths relative to the skill root and the doctor resolves them there; a marker in a sibling skill that is not installed reads `absent`, not broken, so a fresh plugin install passes `doctor`.
 - v20 (2026-10-25): the essentials only. The research modules (conduct, inverse, introspect, rerank, fairness) moved to the package `skill-maestro-extras`; a core install prints a one-line hint when one of their commands is asked for and `--selftest` skips them. `intents/intents.json` and its last reader left. The histories, surveys and research notes left the package. SKILL.md halved.
 - v19c (2026-10-25): dial M52, the session's phase (which skills this machine's sessions reached for after the ones just used), landed with M51 as one tree.
 - v19b (2026-10-25): dial M51, the deliverable vote (C2 dataviz fix); the M19 paired run; the cold-library scenarios fixed.

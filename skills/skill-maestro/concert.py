@@ -171,15 +171,20 @@ def doctor(lib, st, root: Path) -> list[dict]:
                    "fix": "re-read the STALE skills' SKILL.md, fix their card lines, then run: python maestro.py cards --stamp"})
     pins = pinned_receipts(HERE / "references" / "leitner_checks.json")     # v17: marker-pinned standing claims
     checks.append({"name": "pinned receipts hold (leitner markers)", "ok": not pins["broken"],
-                   "found": f"{pins['held']} hold, {len(pins['broken'])} broken" + (f": {', '.join(pins['broken'][:3])}" if pins["broken"] else ""),
+                   "found": f"{pins['held']} hold, {len(pins['broken'])} broken" + (f": {', '.join(pins['broken'][:3])}" if pins["broken"] else "")
+                            + (f", {len(pins['absent'])} absent (sibling skill not installed)" if pins.get("absent") else ""),
                    "fix": "a standing claim's marker text is gone from its file: re-check the claim and update references/leitner_checks.json"})
     return checks
 
 
 def pinned_receipts(path: Path) -> dict:
     """v17 (ruflo verification/witness-fixes.json): each standing claim may carry a `marker` {file, contains}: the
-    file must still contain that text, or the claim is BROKEN (a receipt pinned to a line that no longer exists)."""
-    held, broken = 0, []
+    file must still contain that text, or the claim is BROKEN (a receipt pinned to a line that no longer exists).
+    v20.0.1: a relative marker path resolves against the skill root (the receipts file's grandparent), so the file
+    ships unchanged in the plugin; a marker that points outside the package (a sibling skill) and finds no file there
+    is `absent`, not broken, because a stranger's install need not carry that sibling."""
+    held, broken, absent = 0, [], []
+    root = path.resolve().parent.parent
     try:
         checks = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     except ValueError:
@@ -188,8 +193,14 @@ def pinned_receipts(path: Path) -> dict:
         mk = spec.get("marker") if isinstance(spec, dict) else None
         if not mk:
             continue
-        f = Path(str(mk.get("file", "")).replace("~", str(Path.home())))
+        raw = str(mk.get("file", "")).replace("~", str(Path.home()))
+        f = Path(raw) if Path(raw).is_absolute() else (root / raw)
         try:
+            f = f.resolve()
+            outside = root not in f.parents
+            if outside and not f.exists():
+                absent.append(name)
+                continue
             ok = f.is_file() and mk.get("contains", "") in f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             ok = False
@@ -197,7 +208,7 @@ def pinned_receipts(path: Path) -> dict:
             held += 1
         else:
             broken.append(name)
-    return {"held": held, "broken": broken}
+    return {"held": held, "broken": broken, "absent": absent}
 
 
 def render_doctor(checks: list[dict]) -> str:
@@ -663,6 +674,18 @@ def _selftest() -> bool:
     md2 = "---\nname: d\ndescription: x. Use this.\n---\n```\npython d.py go\n```\n```\npython d.py go\n```\n"
     ok["digest: the same command in two blocks is shown once"] = sum(1 for x in digest(md2) if x.startswith("RUN")) == 1
     ok["concepts_text is parseable --concepts"] = concepts_text("rank the cards", vocab).startswith("rank: ")
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        sk = Path(td) / "pkg"
+        (sk / "references").mkdir(parents=True)
+        (sk / "a.py").write_text("def here(): pass", encoding="utf-8")
+        rc = sk / "references" / "lc.json"
+        rc.write_text(json.dumps({"rel-holds": {"marker": {"file": "a.py", "contains": "def here("}},
+                                  "rel-broken": {"marker": {"file": "a.py", "contains": "def gone("}},
+                                  "sibling-absent": {"marker": {"file": "../other/x.tsv", "contains": "k"}}}), encoding="utf-8")
+        pr = pinned_receipts(rc)
+    ok["pinned_receipts: relative marker resolves against the skill root; a missing sibling is absent, not broken"] = \
+        pr["held"] == 1 and pr["broken"] == ["rel-broken"] and pr["absent"] == ["sibling-absent"]
     md = ("---\nname: demo\ndescription: Count the lines of a file quickly. Use this whenever Max asks for a count.\n---\n"
           "# demo\n\n## How\n\n```\npython demo.py count FILE\npython demo.py --selftest\n```\n\n## Notes\nSelftest 4/4 PASS.\n")
     d = digest(md)
