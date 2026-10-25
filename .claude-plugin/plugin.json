@@ -16,5 +16,7 @@
   ],
   "skills": [
     "./skills/skill-maestro"
-  ]
+  ],
+  "homepage": "https://github.com/max0wellseltzer-wow/skill-maestro",
+  "repository": "https://github.com/max0wellseltzer-wow/skill-maestro"
 }

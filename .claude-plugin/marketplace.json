@@ -1,0 +1,12 @@
+{
+  "name": "skill-maestro",
+  "owner": { "name": "max0wellseltzer-wow" },
+  "description": "The Maestro: picks skills for a task from whatever library you have, proves the picks on the task's real subject, and learns from what was really used.",
+  "plugins": [
+    {
+      "name": "skill-maestro",
+      "source": "./",
+      "description": "Pick and actually use the best skills from your skill library, fairly and at a known cost: triage first, read the task by meaning, prove each pick on the real subject, learn from what was really used."
+    }
+  ]
+}

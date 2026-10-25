@@ -11,7 +11,15 @@ version).
 
 ## Install
 
-From a marketplace that lists this package: `/plugin install skill-maestro`.
+Public repository: https://github.com/max0wellseltzer-wow/skill-maestro (it is its own marketplace).
+
+```
+/plugin marketplace add max0wellseltzer-wow/skill-maestro
+/plugin install skill-maestro@skill-maestro
+```
+
+Later: `/plugin marketplace update skill-maestro`, then `/plugin update skill-maestro@skill-maestro`; a new version
+reaches you only when `version` in `.claude-plugin/plugin.json` changes.
 By hand: copy `skills/skill-maestro/` into `~/.claude/skills/`, then
 
 ```
@@ -42,6 +50,7 @@ subject and judged. Its own accuracy numbers, including the ones that did not im
 
 ## Publishing
 
-This folder is the package. To publish, the owner creates a public repository holding it (or adds it to an existing
-marketplace), sets the license file beside this README (MIT is declared in `.claude-plugin/plugin.json`), and lists
-it in a `marketplace.json`. Until then it is a private, installable-by-hand package.
+This folder is the package and the repository https://github.com/max0wellseltzer-wow/skill-maestro
+is its public copy (MIT, `LICENSE`). `.claude-plugin/marketplace.json` lists the package at the repository root, so
+the repository is also the marketplace. The copy is pushed from `plugins/skill-maestro` of the owner's workspace;
+ratings and labels come back through `maestro.py share` bundles (see `SHARING.md`).
