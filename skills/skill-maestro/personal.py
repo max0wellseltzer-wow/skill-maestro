@@ -1,4 +1,4 @@
-"""Your own Maestro (Max, 2026-10-24: "give people the option to not send their preferences and build their own
+"""Your own Maestro (the user, 2026-10-24: "give people the option to not send their preferences and build their own
 personal custom /skill maestro that changes based on their ratings").
 
 Every copy of the Maestro already keeps its history on its own machine (state/ledger.jsonl and state/hindsight.jsonl).

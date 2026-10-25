@@ -1,4 +1,4 @@
-"""Scenario test (Max, 2026-10-24: "test skill maestro on indexed skills and non indexed skills ... usable when skills
+"""Scenario test (the user, 2026-10-24: "test skill maestro on indexed skills and non indexed skills ... usable when skills
 are indexed and when none are indexed OR loaded").
 
 Builds a throwaway library in a temp folder: 30 skills copied from this PC's library plus one NEW skill that no

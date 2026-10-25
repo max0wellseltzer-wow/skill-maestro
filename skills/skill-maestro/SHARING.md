@@ -1,7 +1,7 @@
 # Sharing the Skill Maestro
 
 The Maestro picks the best skills from a Claude Code skill library for the task in front of it, makes the picks
-prove themselves on the task's real subject, and learns from ratings. This page is for someone who is not Max
+prove themselves on the task's real subject, and learns from ratings. This page is for someone who is not the user
 and wants it on their own library.
 
 New here? Read `WELCOME.md` first: the same thing explained like you are five, with a dictionary.
@@ -67,7 +67,7 @@ Bundles you receive are read as data: nothing in one is ever run.
 
 ## Known limits
 
-- The measurements in SKILL.md (@1, @3, pool@40 on 58 prompts) are on Max's prompts and Max's library; they say
+- The measurements in SKILL.md (@1, @3, pool@40 on 58 prompts) are on the user's prompts and the user's library; they say
   nothing about yours until you build a probe file (`tab`-separated: prompt, comma-separated good skills) and run `eval --probes FILE`.
 - Built-in Claude Code skills cannot be read from disk; `builtins.json` is a hand-kept snapshot.
 - Windows and Linux are both exercised; macOS is not tested.

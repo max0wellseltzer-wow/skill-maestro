@@ -1,4 +1,4 @@
-"""The MEANING reading (2026-10-24, Max: "the picker needs to pick from meaning and purpose not words ... its a command").
+"""The MEANING reading (2026-10-24, the user: "the picker needs to pick from meaning and purpose not words ... its a command").
 
 Every skill is described by what it is FOR, not by the words it happens to use: its description + what the survey saw
 it really do (cards/tested.jsonl `does`) + the requests a person would type when it is the right tool (`asks`) + the
@@ -7,7 +7,7 @@ BAAI/bge-small-en-v1.5, CPU, no key); a prompt is turned into a vector the same 
 their vector is to the prompt's (cosine).
 
 THE VECTOR FILE keeps one vector per skill (state/meaning_<model>_<library>.npz) with a fingerprint of the text it was
-made from. It keeps itself current (v2, 2026-10-24, Max: "stop being so vague ... rebuild what?"):
+made from. It keeps itself current (v2, 2026-10-24, the user: "stop being so vague ... rebuild what?"):
   - every query first compares the skill files' sizes and dates with the ones the file was made from (~0.1 s);
   - a NEW or CHANGED skill is embedded on the spot (up to INLINE_MAX per query) and a DELETED one is dropped;
   - when more than that are missing (a fresh install: no file at all), a background job embeds the rest, and until it
@@ -47,14 +47,14 @@ STATE = Path(os.environ.get("MAESTRO_STATE", Path.home() / ".claude" / "skill-ma
 MODEL = os.environ.get("MAESTRO_MEANING_MODEL", "BAAI/bge-small-en-v1.5")
 VENV_PY = Path.home() / "venvs" / "maestro-meaning" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 # Background launches use pythonw on Windows: the venv's python.exe is a launcher that re-runs the base python.exe as a
-# child, and a DETACHED child console program gets a fresh, visible console window (Max saw one every few minutes).
+# child, and a DETACHED child console program gets a fresh, visible console window (the user saw one every few minutes).
 _PYW = VENV_PY.with_name("pythonw.exe")
 VENV_BG = _PYW if os.name == "nt" and _PYW.is_file() else VENV_PY
 BG_FLAGS = (0x00000200 | 0x08000000) if os.name == "nt" else 0   # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "   # bge's retrieval instruction
 INLINE_MAX = int(os.environ.get("MAESTRO_MEANING_INLINE", "8"))   # skills embedded inside one query before going background
 # 2026-10-25 (the cold-library scenarios): a library with NO vector file yet and at most COLD_FULL skills is embedded whole on
-# its first query (~0.7 s a skill on Max's PC, once); a store covering under MIN_COVERAGE of the library is no reading at all,
+# its first query (~0.7 s a skill on the user's PC, once); a store covering under MIN_COVERAGE of the library is no reading at all,
 # because the skills embedded so far are the alphabetically first ones (Anthropic's) and nobody else can win by meaning.
 COLD_FULL = int(os.environ.get("MAESTRO_MEANING_COLD_FULL", "80"))
 MIN_COVERAGE = 0.5

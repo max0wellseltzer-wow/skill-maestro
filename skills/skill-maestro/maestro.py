@@ -1,9 +1,9 @@
 """SKILL Maestro: pick and use the best skills for a task, with receipts, without cutting corners.
 
-Stages (Max's verbs): CONSIDER a wide pool -> WEIGH each on fit, usefulness, fascination and favour -> SELECT under
+Stages (the user's verbs): CONSIDER a wide pool -> WEIGH each on fit, usefulness, fascination and favour -> SELECT under
 the no-corner-cutting rule -> UNDERSTAND (read receipts) -> CONSTITUTE an agenda -> USE, then RATE so the next
 choice is better. It reuses the library instead of re-implementing it: skill-finder (TF-IDF search + core pins),
-skills-index (families), skill-graph (neighbours, optional), max-lexicon (Max's own words), and keeps a registry so
+skills-index (families), skill-graph (neighbours, optional), max-lexicon (the user's own words), and keeps a registry so
 new skills are never missed. Design notes and the evidence behind v2: brainstorm_2026-10-18.md, now in the extras package (skill-maestro-history).
 
     python maestro.py score "the task in plain words" [--concepts "op: ...; world: ..."] [--top 6] [--full] [--pool]
@@ -26,17 +26,17 @@ new skills are never missed. Design notes and the evidence behind v2: brainstorm
     python maestro.py read <run_id> <skill> [<skill> ...]       # UNDERSTAND: record that each SKILL.md was read
     python maestro.py rate <run_id> <skill> useful|fascinating|favourite|unused|wrong
     python maestro.py rate <run_id> <skill|menu:A..E> --by max|claude inner=4 topic=5 curiosity=3 ... [why]
-    python maestro.py metrics                                   # Max's metrics board, menus by idea, calibration
+    python maestro.py metrics                                   # the user's metrics board, menus by idea, calibration
     python maestro.py close <run_id> "why"                      # a run never used for work: leaves the audit debt, counts for nothing
     python maestro.py plan <run_id> <skill> --on SUBJECT "what it should find"   # the pick's use-plan line (protocol step 4)
     python maestro.py baton <run_id>                            # where the run stands in the protocol, and the next move
-    python maestro.py forward [--write FILE]                    # the running log of Max's ratings: Maestro vs skill-finder, forward
+    python maestro.py forward [--write FILE]                    # the running log of the user's ratings: Maestro vs skill-finder, forward
     (any <run_id> may be written `last`: the newest score run)
     python maestro.py try <run_id> <skill> -- <its command on the real subject>   # FIT: run it on the task's subject
     python maestro.py fit <run_id> <skill> works|misfit "why"   # works needs a TRY; misfit is an antibody
     python maestro.py taste <run_id> <skill> --subject FILE -- <command with {subject}>   # null-contrast probe
     python maestro.py new                                       # NEW / CHANGED / REMOVED skills since the last look
-    python maestro.py eval [--probes FILE] [--plain]            # selection quality on held-out Max prompts
+    python maestro.py eval [--probes FILE] [--plain]            # selection quality on held-out the user prompts
     python maestro.py trend                                     # every past eval with the code hash it ran on
     python maestro.py selfcheck                                 # the reviewer skills as one skill-compose pipeline
     python maestro.py reflect                                   # useful, traps, wallflowers, duets: the Maestro looks back
@@ -116,7 +116,7 @@ SHARED_LEDGER = Path("shared") / "skill-maestro" / "ledger.jsonl"   # relative t
 DIALS = HERE / "maestro_dials.md"
 LOCKED = {"margin": "0.15", "book_ratings": "useful", "fascination_picks_max": "1", "rate_needs_read": "yes",
           "debt_shown": "yes", "ranking_label": "ORGANIZED", "bonuses_capped": "yes",
-          "think_first": "no"}    # the spine maestro.py was tested with (think_first: Max's ruling 2026-10-24, picks without his concepts)
+          "think_first": "no"}    # the spine maestro.py was tested with (think_first: the user's ruling 2026-10-24, picks without his concepts)
 BOOK_RATINGS = ("useful",)
 FASC_PICKS_MAX = 1
 
@@ -184,8 +184,8 @@ MARGIN = 0.15          # a candidate may outrank one with better fit only if its
 POOL = 40              # CONSIDER: candidates taken before weighing
 W_USE, W_FASC, W_FAV = 0.25, 0.15, 0.15
 RATINGS = ("useful", "fascinating", "favourite", "unused", "wrong")
-# Max's metrics (2026-10-18), 0-5. INNER are Claude's experience of the work: only Claude can report them, so they
-# are self-reports (S3) and never evidence. TOPIC are about the work and checkable: Max's TOPIC ratings feed memory.
+# the user's metrics (2026-10-18), 0-5. INNER are Claude's experience of the work: only Claude can report them, so they
+# are self-reports (S3) and never evidence. TOPIC are about the work and checkable: the user's TOPIC ratings feed memory.
 METRICS_INNER = ("fascination", "enjoyment", "fun", "feelings", "love", "curiosity", "motivation", "creativity",
                  "abilities")
 METRICS_TOPIC = ("generation", "research", "task", "relevant_research", "understanding")
@@ -226,15 +226,15 @@ DELIVERABLES = {"chart": "chart", "charts": "chart", "graph": "graph", "graphs":
 # diagram; "diagramming" starts with "diagram"). Stems only: no skill is named here.
 DELIVERABLE_KIN = {"diagram": ("flowchart", "schematic"), "flowchart": ("diagram",), "schematic": ("diagram",),
                    "wireframe": ("mockup",), "mockup": ("wireframe",)}
-ASK_FIRST = True       # dial M50 (2026-10-24, Max: "ask clarifying questions before it does its job"): the sheet lists them
-THINK_FIRST = False    # dial M23: True = no picks until Claude writes --concepts; Max 2026-10-24: picks without concepts   # v15: three readings kept at 0 until measured (dials M37-M39); v16 O10: lexicon, feedback, intents removed (ablation: COSTS)
+ASK_FIRST = True       # dial M50 (2026-10-24, the user: "ask clarifying questions before it does its job"): the sheet lists them
+THINK_FIRST = False    # dial M23: True = no picks until Claude writes --concepts; the user 2026-10-24: picks without concepts   # v15: three readings kept at 0 until measured (dials M37-M39); v16 O10: lexicon, feedback, intents removed (ablation: COSTS)
 DIAL_SHA = "defaults"
 NEW_MAX = 8            # at most this many NEW skills join one pool (v11 added ~400 plugin skills at once)
 HEALTH_GATE = True     # v12: run each pick's own --selftest (cached by hash); a FAIL is swapped out and shown
 STABLE_AT = 0.75       # E34's bar: STABLE when the pick survives this share of leave-one-part-out readings
 STABILIZE = False      # v12 experiment: re-rank within MARGIN by stability; 58 held-out: no change (13/17/46), so off
 FAMILY_CAP = 2         # diversity: a third skill of one family is replaced by a near-tie from another family
-# v10 concept reading (Max 10-19: "relying far to much on key words and not enough on conceptual understanding").
+# v10 concept reading (the user 10-19: "relying far to much on key words and not enough on conceptual understanding").
 # The task is restated by Claude as operations (tags from cards/vocab.json) and analogies, and matched against each
 # skill's mechanism line (cards/mechanisms.jsonl: does / tags / world). Values fixed before E35 ran, not tuned on it.
 CONCEPT_PULL = 2       # each concept's best N mechanism matches join the pool even when they share no task word
@@ -242,8 +242,8 @@ WONDER_K = 3           # far-family concept matches shown apart; each must be ru
 NEED_FLOOR = 0.35      # a concept whose best match (0..1) is below this is a NEEDED skill (seed for skill-foundry)
 DEMOTE_LEXICAL = True  # v10e item 5: on the meaning ballot, word-reading skills (cards/lexical.json) go last (dial M27)
 BALLOTS = True         # v10d: with concepts, picks alternate between a words ballot and a meaning ballot (dial M26)
-SELF = "skill-maestro" # v11 never picked itself; 2026-10-24 (Max): it may, when the prompt is about choosing skills, rarely
-SELF_TOP, SELF_MAX, SELF_WINDOW = 3, 12, 20  # dial M47: meaning must rank it in the top 3, and at most 12 of the last 20 runs (Max 2026-10-24)
+SELF = "skill-maestro" # v11 never picked itself; 2026-10-24 (the user): it may, when the prompt is about choosing skills, rarely
+SELF_TOP, SELF_MAX, SELF_WINDOW = 3, 12, 20  # dial M47: meaning must rank it in the top 3, and at most 12 of the last 20 runs (the user 2026-10-24)
 
 
 def self_pick_allowed(meaning_top: list[str], state_dir: Path, record: bool = True) -> tuple[bool, str]:
@@ -268,7 +268,7 @@ def self_pick_allowed(meaning_top: list[str], state_dir: Path, record: bool = Tr
         except OSError:
             pass
     return ok, why
-# v14 fairness (Max 2026-10-21: no skill favoured for being used more often or for having more written about it).
+# v14 fairness (the user 2026-10-21: no skill favoured for being used more often or for having more written about it).
 # Each switch is measured by fairness.py and by eval before it is kept; see references/FAIRNESS.md.
 FAIR_ASKWORDS = True   # A (kept: pool share of self-describing skills 38% -> 23%, accuracy level): the self-referential asking words ("skill", "skills", "maestro") never reach the ranking
 FAIR_CONTEXT = True    # C (kept: held-out @1 5 -> 7, custom 6 -> 8): a skill's rating record counts only from past tasks similar to this one (no global fame)
@@ -318,7 +318,7 @@ ASK_WORDS = {"skill", "skills", "maestro"}
 TRIAGE_ON = True       # v11: score first decides SKIP / QUICK / FULL and answers SKIP and QUICK in a few lines (dial M28)
 BRIEF = True           # v11: the default sheet is the short one; --full prints every section (dial M29)
 COVER_MAX = 3          # v10b: an operation concept with no chosen skill among its best matches gets its best one added
-SPARK_K = 3            # v10b: creative operators shown on every sheet (Max 10-19: "inspire a little bit of creativity")
+SPARK_K = 3            # v10b: creative operators shown on every sheet (the user 10-19: "inspire a little bit of creativity")
 GENERATIVE = ("combine-parents", "analogize", "generate-variants", "explore-curiosity", "name-coin", "evolve-iterate",
               "reframe-viewpoint")
 MECHS = HERE / "cards" / "mechanisms.jsonl"
@@ -342,7 +342,7 @@ ROLES = {   # the work's own phases; a skill's role is read from its name and th
                        r"mailbox|release|archive)\b", re.I),
 }
 PHASE_ORDER = ("UNDERSTAND", "BUILD", "VERIFY", "LAND")
-KINDS = {   # what a skill takes as input / what a task works on (v7b; Max: does the skill work on the task at hand?)
+KINDS = {   # what a skill takes as input / what a task works on (v7b; the user: does the skill work on the task at hand?)
     "LOG": re.compile(r"\b(append-only|ledger|log|logs|chain|jsonl|ordered record|decisions\.md|errata|timestamps?)\b", re.I),
     "SERIES": re.compile(r"\b(series|returns?|prices?|bars?|ohlc\w*|candles?|time-series|signal|signals|volatility)\b", re.I),
     "CODE": re.compile(r"\b(code|python|function|functions|module|modules|repo|git|commit|tests?|mutants?|bytecode)\b", re.I),
@@ -490,11 +490,11 @@ class MiniPin:
 LIMIT_MARK = re.compile(r"\b(never|no|not|must not|only|until|banned|forbidden|stays? disabled|do not|don't)\b", re.I)
 GOAL_MARK = re.compile(r"\b(goal|purpose|aim|mission|we are building|this project|the plan|objective)\b", re.I)
 PICKS_MAX = 22
-OWNER = __import__("os").environ.get("MAESTRO_OWNER", "the owner")   # who rates: "Max" on his PC (set MAESTRO_OWNER), "the owner" elsewhere
+OWNER = __import__("os").environ.get("MAESTRO_OWNER", "the owner")   # who rates: "the user" on his PC (set MAESTRO_OWNER), "the owner" elsewhere
 
 
 def charter(project: Path | None) -> dict:
-    """The project's GOALS and LIMITS, read before any skill is chosen (Max, 2026-10-20: "it needs to understand the
+    """The project's GOALS and LIMITS, read before any skill is chosen (the user, 2026-10-20: "it needs to understand the
     goals and limits of the project before it can understand which skills it can decide to use").
     Sources, first found wins: MAESTRO_PROJECT.md or .claude/maestro_project.md with `GOAL:` / `LIMIT:` lines (any
     project, no guessing); else CLAUDE.md: the opening paragraph and goal-worded lines are goals, bullet lines under a
@@ -555,7 +555,7 @@ def limit_hits(limit: str, name: str, desc: str, tokens) -> list[str]:
 
 
 def pick_count(task: str, weighed: list[dict]) -> tuple[int, str]:
-    """How many skills this task deserves, 1 to PICKS_MAX (Max: "chooses 1 to 22 different /skills"): two per sentence
+    """How many skills this task deserves, 1 to PICKS_MAX (the user: "chooses 1 to 22 different /skills"): two per sentence
     of the ask, one for a task of four words or fewer, never more than the candidates whose fit is at least half
     the best. The reason is printed with the number."""
     sents = [x for x in re.split(r"(?<=[.?!;])\s+|\n+", task.strip()) if x.strip()]
@@ -593,7 +593,7 @@ def deliverable_reading(task: str, ordered: list[str], desc: dict[str, str]) -> 
 
 def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None = None, state_dir: Path | None = None,
                  desc: dict[str, str] | None = None, phase: list[list[str]] | None = None) -> list[dict]:
-    """Max 2026-10-24: pick by meaning and purpose, not words. The meaning reading (weight_meaning) and the finder's
+    """the user 2026-10-24: pick by meaning and purpose, not words. The meaning reading (weight_meaning) and the finder's
     words (weight 1) fused by reciprocal rank; fit is the fused score scaled to the best. Falls back to words alone
     when the meaning vectors are missing. `word_search(task, depth)` returns the finder's rows (name, score).
     2026-10-25: with `desc` (name -> description) the deliverable reading (dial M51) adds its vote."""
@@ -634,7 +634,7 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
 
 
 def use_line(c: dict, phase: str, subject: str, run: str) -> str:
-    """One paste-ready line on how to use a pick on THIS task (Max: "helps prompt best use of the /skills it chooses")."""
+    """One paste-ready line on how to use a pick on THIS task (the user: "helps prompt best use of the /skills it chooses")."""
     card = c.get("card") or {}
     when = (c.get("when") or "").split(". ")[0][:120]
     cmd = c.get("first_cmd")
@@ -860,7 +860,7 @@ def plugin_states(project: Path | None) -> dict[str, tuple[bool, str]]:
 
 def skill_overrides(project: Path | None) -> dict[str, str]:
     """Claude Code's skillOverrides (user settings, then the project's, which win). "off": the harness will not run
-    the skill at all, so it leaves the pool; "user-invocable-only": only Max can start it, by typing /name;
+    the skill at all, so it leaves the pool; "user-invocable-only": only the user can start it, by typing /name;
     "name-only" and "on": Claude can still run it, nothing to say."""
     out: dict[str, str] = {}
     for f in settings_files(project):
@@ -1064,7 +1064,7 @@ class Library:
 
     # --- CONSIDER: several readings of the task, fused -------------------------------------------------------------
     def variants(self, task: str) -> dict[str, str]:
-        """The task read three ways and fused: as written; with Max's own terms expanded to their meaning
+        """The task read three ways and fused: as written; with the user's own terms expanded to their meaning
         (max-lexicon); with the top hits' description words added (pseudo-relevance feedback). Ablation on the probe
         sets (2026-10-18, workspace ablate.py, 12 subsets): this trio was the only one that kept held-out pool recall
         (40/58) while raising top-3 (14 -> 16/58) and training pool recall (18 -> 19/20). A fourth reading without the
@@ -1243,7 +1243,7 @@ class Library:
         return [n for n, _ in sorted(sc.items(), key=lambda kv: (kv[1], kv[0]))[:depth]]
 
     def meaning_reading(self, task: str, depth: int) -> list[str]:
-        """2026-10-24 (Max: "the picker needs to pick from meaning and purpose not words"): every skill embedded once
+        """2026-10-24 (the user: "the picker needs to pick from meaning and purpose not words"): every skill embedded once
         from what it is FOR (description + the survey's `does` + its `asks` + the card's output), the task embedded
         the same way, ranked by cosine (meaning.py; a free local model in its own venv). Empty when the venv or the
         vectors are missing, so the other readings still rank."""
@@ -1251,7 +1251,7 @@ class Library:
         return [n for n, _ in r if n in self.desc] if r else []
 
     def personal_reading(self, task: str, depth: int) -> list[str]:
-        """2026-10-24 (Max: "build their own personal custom /skill maestro that changes based on their ratings"): the
+        """2026-10-24 (the user: "build their own personal custom /skill maestro that changes based on their ratings"): the
         skills THIS person used and rated on past prompts that mean what the task means (personal.py). Learns from
         the owner's own history only, never from other people's ratings. Empty without the meaning model."""
         st, rows_fn = getattr(self, "state_dir", None), getattr(self, "personal_rows", None)
@@ -1401,7 +1401,7 @@ class Library:
 
 
 class State:
-    """Append-only ledger, the registry snapshot, Max's favourites."""
+    """Append-only ledger, the registry snapshot, the user's favourites."""
 
     def __init__(self, d: Path, ledger: Path | None = None, also: tuple[Path, ...] = ()) -> None:
         self.d = Path(d)
@@ -1462,7 +1462,7 @@ class State:
                 s.setdefault(r["skill"], {}).setdefault("wrong", 0)
                 s[r["skill"]]["wrong"] += 1
         menus_of = {r["run"]: r.get("menus", {}) for r in rows if r.get("kind") == "SCORE"}
-        for r in latest_metrics(rows):               # Max's topic metrics join the record (v6c, bench E13)
+        for r in latest_metrics(rows):               # the user's topic metrics join the record (v6c, bench E13)
             tm = group_mean(r["scores"], METRICS_TOPIC)
             if r["by"] != "max" or tm is None:
                 continue
@@ -1485,7 +1485,7 @@ class State:
         out += [(words[r["run"]], r["skill"], "wrong") for r in rows
                 if r.get("kind") == "FIT" and r.get("verdict") == "misfit" and r.get("run") in words]
         menus_of = {r["run"]: r.get("menus", {}) for r in rows if r.get("kind") == "SCORE"}
-        for r in latest_metrics(rows):              # Max's topic metrics only: Claude cannot grade its own homework
+        for r in latest_metrics(rows):              # the user's topic metrics only: Claude cannot grade its own homework
             tm = group_mean(r["scores"], METRICS_TOPIC)
             if r["by"] != "max" or tm is None or r["run"] not in words:
                 continue
@@ -1567,7 +1567,7 @@ def rated_pairs(rows: list[dict]) -> set[tuple[str, str]]:
 
 
 def menus(weighed: list[dict], chosen: list[dict], rows: list[dict], desc: dict, family, k: int = 3) -> dict[str, list[str]]:
-    """Several answers from one pool, one idea each, no skill in two menus (so Max compares ideas, not repeats)."""
+    """Several answers from one pool, one idea each, no skill in two menus (so the user compares ideas, not repeats)."""
     taken: set[str] = set()
 
     def take(names: list[str]) -> list[str]:
@@ -1616,8 +1616,8 @@ def menus(weighed: list[dict], chosen: list[dict], rows: list[dict], desc: dict,
 
 
 def board(rows: list[dict]) -> list[str]:
-    """Max's metrics board: each menu idea by Max and by Claude, the best skills by Max's topic ratings, and the
-    calibration line (Claude's self-ratings against Max's on the same targets)."""
+    """the user's metrics board: each menu idea by the user and by Claude, the best skills by the user's topic ratings, and the
+    calibration line (Claude's self-ratings against the user's on the same targets)."""
     M = latest_metrics(rows)
     if not M:
         return ["METRICS: none yet. After a run: `maestro.py rate RUN <skill|menu:A..E> --by max|claude inner=4 topic=5 ...`"]
@@ -1780,6 +1780,8 @@ def survey_build(src: Path, out: Path | None = None) -> tuple[int, dict[str, int
             rows.append(row)
         except (OSError, ValueError, KeyError, TypeError) as e:
             bad.append(f"{f.stem} ({type(e).__name__}: {e})")
+    scrub_row = _load(HERE / "scrub.py", "scrub").scrub_row     # v20.0.3: no machine path or owner name reaches the survey
+    rows = [scrub_row(r) for r in rows]
     (out or TESTED).write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows), encoding="utf-8")
     by: dict[str, int] = {}
     for r in rows:
@@ -1980,7 +1982,7 @@ def load_lexical() -> dict[str, str]:
 
 
 def two_ballots(words: list[str], meaning: list[str], top: int, family, blocked: set) -> list[tuple[str, str]]:
-    """v10d (Max 10-19, brainstorm item 1): pick from TWO ballots instead of one fused vote. E35 showed the concept
+    """v10d (the user 10-19, brainstorm item 1): pick from TWO ballots instead of one fused vote. E35 showed the concept
     reading found the right skills (#1, #2) and then lost the fused vote to four keyword readings. So the sheet takes
     turns: best of the words ballot, best of the meaning ballot, next of each ... skipping repeats, blocked skills and a
     third skill of one family. A skill on both ballots is marked 'both'. Returns [(name, 'words'|'meaning'|'both')]."""
@@ -2021,7 +2023,7 @@ def quote_in_tries(rows: list[dict], run: str, skill: str, quote: str) -> bool:
 
 def ponder(rows: list[dict], run: str, mechs: dict, cards: dict, concepts2: list[dict] | None = None,
            per2: list | None = None) -> list[str]:
-    """The SECOND THINK STEP (v10c, Max 10-19: "we might need a second think step of some kind somewhere"). Between
+    """The SECOND THINK STEP (v10c, the user 10-19: "we might need a second think step of some kind somewhere"). Between
     the sheet and using the picks. Five moves, each from a skill that suggested it in the 10-19 brainstorm:
     BLUNDER CHECK (chess candidate moves + blunder check; metaphor-to-algorithm said BUILD, no skill did it),
     QUORUM (honeybee scouts; kingdom-sweep): a second reading from the failure angle, picks in both = quorum,
@@ -2373,7 +2375,7 @@ def is_checker(name: str, desc: str) -> bool:
     return bool(CHECKER.search(name.replace("-", " ") + " " + desc[:200]))
 
 
-# --- the spectrum of tasks (v12, Max: "every spectrum of skill type, every need someone has or ever will ask") -----
+# --- the spectrum of tasks (v12, the user: "every spectrum of skill type, every need someone has or ever will ask") -----
 TOOL_BONUS = True      # set per score from the task's kind; creative kinds judge documents and tools alike
 KINDS_ON = True        # eval --no-kinds measures the library as if every task were analytical
 TASK_KINDS = {   # kind -> markers in the task's own words; the kind with most hits leads, ANALYZE when none
@@ -2586,7 +2588,7 @@ def learned_duets(rows: list[dict]) -> dict[str, set[str]]:
 
 
 def purpose(ctx: list[str]) -> str | None:
-    """Motivation as focus: tie the task to the first phase work can move (OPEN; a phase waiting on Max cannot be
+    """Motivation as focus: tie the task to the first phase work can move (OPEN; a phase waiting on the user cannot be
     moved by work), or say plainly that it does not advance it."""
     open_line = next((c for c in ctx if c.startswith("first phase work can move:")), None)
     if not open_line:
@@ -2672,7 +2674,7 @@ def encore(rows: list[dict], run: str | None = None) -> list[str]:
 
 def thompson_pick(rows: list[dict], s: dict, exclude: set = frozenset()) -> tuple[str, float, str] | None:
     """The curiosity pick: for each skill in the run's pool (not on its agenda), draw theta ~ Beta(good+1, bad+1) from
-    its record on the run's questions (good = useful / FIT works / Max >= 4; bad = wrong, unused, misfit, Max <= 1) and
+    its record on the run's questions (good = useful / FIT works / the user >= 4; bad = wrong, unused, misfit, the user <= 1) and
     take the highest draw. Untried skills draw from Beta(1, 1), known misfits from a low Beta: exploration with memory."""
     import random
     qs = tuple(s.get("questions") or ())
@@ -2887,7 +2889,7 @@ def wilson_ci(k: int, n: int) -> str:
 
 
 def forward(rows: list[dict]) -> list[str]:
-    """The running log (PREREG Amendment 15): only runs Max rated; picks frozen at decision time."""
+    """The running log (PREREG Amendment 15): only runs the user rated; picks frozen at decision time."""
     import math
     scores = {r["run"]: r for r in rows if r.get("kind") == "SCORE"}
     appr: dict[str, set[str]] = {}
@@ -2961,7 +2963,7 @@ def stay_inside(task: str) -> list[str]:
     return [m.group(0).strip()[:160] for m in SCOPE.finditer(task)][:4]
 
 
-# v11 TRIAGE (2026-10-21, Max: "doesn't it cost way to much to load in skill maestro?"). Measured that day on GT198,
+# v11 TRIAGE (2026-10-21, the user: "doesn't it cost way to much to load in skill maestro?"). Measured that day on GT198,
 # a card that already named its files, red tests and plants: the instructions (~8,000 tokens) plus a concept sheet
 # (~5,000) plus the picks' SKILL.md files (~280 lines) bought 2 useful picks of 6, and 5 of the card's 6 operations
 # came back NEEDED. So score() asks first whether a sheet is worth its cost, and says so in a few lines when it is not.
@@ -3145,7 +3147,7 @@ def read_cost(chosen: list[dict]) -> int:
 
 def triage_note(lib: Library, st: State, task: str, verdict: str, why: str) -> str:
     """The short answer for SKIP and QUICK: no score run (so no audit debt), the finder's picks sized 1 to PICKS_MAX by
-    pick_count (Max, 2026-10-24: "1 to 22", never a fixed top 3), the override."""
+    pick_count (the user, 2026-10-24: "1 to 22", never a fixed top 3), the override."""
     scored = purpose_rank(lib.search, task, root=lib.root, state_dir=st.d, desc=lib.desc)   # meaning first (M46), then words, then the deliverable (M51)
     n, n_why = pick_count(task, [r for r in scored if "meaning" in r["via"]] or scored)
     top3 = scored[:n]
@@ -3264,7 +3266,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
     cons = parse_concepts(concepts, vocab, lib.fs._tokens) if concepts else []
     inferred_ops = infer_tags(task, vocab, lib.fs._tokens, k=3) if vocab else []   # v18: shown on THINK FIRST
     concepts_inferred = False
-    if not cons and not THINK_FIRST and inferred_ops:      # Max 2026-10-24: picks without his concepts; infer them
+    if not cons and not THINK_FIRST and inferred_ops:      # the user 2026-10-24: picks without his concepts; infer them
         cons = parse_concepts("; ".join(f"{t}: {task[:200]}" for t, _, _ in inferred_ops), vocab, lib.fs._tokens)
         concepts_inferred = bool(cons)
     subject_sha = file_sha(Path(subject)) if subject and Path(subject).is_file() else None   # v18: score --subject
@@ -3314,7 +3316,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
     blocked = [c for c in pool if c["name"] in anti]       # immune memory: wrong on a similar task before
     pool = [c for c in pool if c["name"] not in anti]
     ov, plug = getattr(lib, "overrides", {}), getattr(lib, "plugins", {})
-    switched_off = [c["name"] for c in pool if ov.get(c["name"]) == "off"]   # still suggested (Max, 2026-10-20):
+    switched_off = [c["name"] for c in pool if ov.get(c["name"]) == "off"]   # still suggested (the user, 2026-10-20):
     # every skill can be picked; a pick that cannot run as things are set says how to switch it on
     weighed_pool = weigh(pool, stats_now, st.favourites())
     pick_note = f"--top {top} given"
@@ -3526,8 +3528,8 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
                 break
     # v10b SPARK: the creative operators panel on EVERY sheet, concepts or not. E35 showed (a) a literal restatement
     # never asks for combining, analogy or invention, and (b) ranking creative skills by word overlap is one more
-    # keyword lane. What worked in the session that caused this (2026-10-19): Max named the families and Claude found
-    # all six useful skills from a plain listing. So the panel does what Max did: it names each generative operator
+    # keyword lane. What worked in the session that caused this (2026-10-19): the user named the families and Claude found
+    # all six useful skills from a plain listing. So the panel does what the user did: it names each generative operator
     # and lists its members (a skill's FIRST tag is its operator; never-shown members first), and Claude, the judge
     # with conceptual understanding, must pick one, say what it would create here, and run it.
     spark = []
@@ -4420,7 +4422,7 @@ def _selftest() -> bool:
                   and eval_null([{"m": ["a"], "good": ["a"]}, {"m": ["a"], "good": ["a"]}], 20)["p"] == 1.0   # ties count: p is 1, not 0
                   and eval_ci([1, 0, 1, 1])["hits"] == 3 and mcnemar([1, 0, 0], [1, 1, 1])["b_only"] == 2
                   and mcnemar([1], [1, 0])["ok"] is False and mcnemar([1, 1], [1, 1])["verdict"] == "IDENTICAL")
-    for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase"):   # v15/v16 + 2026-10-24/25: the modules beside this file
+    for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase", "scrub"):   # v15/v16 + 2026-10-24/25: the modules beside this file
         if _module_path(mod) is None and mod in EXTRA_MODULES:     # v20: an extra that is not installed is not a failure
             print(f"  {mod}: not installed ({EXTRAS_PKG}); its selftest is skipped")
             continue
@@ -4451,7 +4453,7 @@ BRIEF_KEEP = ("MAESTRO run", "PROJECT", "  GOAL", "  LIMIT", "TASK vs LIMIT", "S
 
 
 def brief(text: str) -> str:
-    """The sheet cut to what the work needs (Max: "do not spend excessive tokens unless actually helpful"): the
+    """The sheet cut to what the work needs (the user: "do not spend excessive tokens unless actually helpful"): the
     picks table rows, each pick's how-to line, the conductor prompt, the project's limits and the swaps."""
     out = []
     for ln in text.splitlines():
@@ -5091,7 +5093,7 @@ def main(argv: list[str]) -> int:
         print("PRIVATE: nothing written. Your Maestro is in private mode (the default), so `share` makes no file. "
               "`maestro.py private off` allows it; nothing is ever sent by itself.")
         return 0
-    elif cmd in ("share", "intake", "community"):           # 2026-10-24 (Max): ratings from everyone who uses the skill
+    elif cmd in ("share", "intake", "community"):           # 2026-10-24 (the user): ratings from everyone who uses the skill
         return _load(HERE / "community.py", "maestro_community").run(argv[argv.index(cmd):], st, STATE, hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12])
     elif cmd == "index":                                     # v15: the prepared index's state, or a forced rebuild
         return _load(HERE / "index.py", "maestro_index").cli_index(argv, lib, st, root, sys.modules[__name__])

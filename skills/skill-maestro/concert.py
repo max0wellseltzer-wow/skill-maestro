@@ -355,7 +355,7 @@ def render_matrix(mx: dict) -> str:
 def whisper_count(prompt: str, scored: list[dict]) -> tuple[int, str]:
     """How many names the whisper shows: the Maestro's own pick_count rule (1 to PICKS_MAX by the task's size: one for
     four words or fewer, two per sentence, never more than the candidates whose words score at least half the best).
-    Max, 2026-10-24: the hook showed a fixed top 3 while score picked 1 to 22; the whisper now follows the same rule.
+    the user, 2026-10-24: the hook showed a fixed top 3 while score picked 1 to 22; the whisper now follows the same rule.
     `scored` is the finder's list (name, score) for the whole candidate window."""
     M_ = _maestro()
     if scored and "fit" in scored[0]:                      # purpose_rank rows: fit already scaled; meaning-backed ones count
@@ -407,7 +407,7 @@ def whisper_fast(prompt: str, state_dir: Path, root: Path, k: int | None = None)
         fs_spec.loader.exec_module(fs)
         if k is not None:
             return [r["name"] for r in IX.FastSearch(fs, skills).search(skills, prompt, k)]
-        for n, d in _maestro().builtin_skills().items():   # 2026-10-24 (Max): Anthropic's skills are full candidates,
+        for n, d in _maestro().builtin_skills().items():   # 2026-10-24 (the user): Anthropic's skills are full candidates,
             if n not in seen:                              # in the words reading too, exactly as the Library adds them
                 seen.add(n)
                 skills.append({"name": n, "desc": d, "tool": False, "name_toks": set(fs._tokens(n)),
@@ -686,7 +686,7 @@ def _selftest() -> bool:
         pr = pinned_receipts(rc)
     ok["pinned_receipts: relative marker resolves against the skill root; a missing sibling is absent, not broken"] = \
         pr["held"] == 1 and pr["broken"] == ["rel-broken"] and pr["absent"] == ["sibling-absent"]
-    md = ("---\nname: demo\ndescription: Count the lines of a file quickly. Use this whenever Max asks for a count.\n---\n"
+    md = ("---\nname: demo\ndescription: Count the lines of a file quickly. Use this whenever the user asks for a count.\n---\n"
           "# demo\n\n## How\n\n```\npython demo.py count FILE\npython demo.py --selftest\n```\n\n## Notes\nSelftest 4/4 PASS.\n")
     d = digest(md)
     ok["digest: name, first sentence, the Use sentence, heading, command, test count"] = \

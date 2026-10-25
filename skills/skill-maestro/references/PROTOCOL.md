@@ -1,7 +1,7 @@
 # The Conductor's Protocol (SKILL Maestro v8)
 
 For any human or AI choosing tools from a large library. It works on paper; `maestro.py` makes each step cheaper
-and leaves a receipt. It exists because word-matching picks badly: on Max's real prompts the right first pick
+and leaves a receipt. It exists because word-matching picks badly: on the user's real prompts the right first pick
 came back about 1 time in 7. Queries and tool descriptions rarely share words (ToolRet, arXiv 2503.01763). What
 did separate good picks from bad on 2026-10-18 was the subject's kind, the skill's hidden assumptions, whether its
 output depended on the subject, and the verdict afterwards. The protocol is built on those four.
@@ -61,7 +61,7 @@ steps and pause points a run has met, so a skipped step is visible, not remember
 ## Part B: using the result (run off it)
 
 - **STABLE beats unstable.** A pick that stays in the top six when any one sentence of the task is left out was
-  right three times as often on Max's labelled prompts (E34). Judge unstable picks harder.
+  right three times as often on the user's labelled prompts (E34). Judge unstable picks harder.
 
 - **The ranking is organized, not verified.** S1 = useful on a similar task before, S2 = read at this version,
   S3 = unread. Treat S3 as a lead.

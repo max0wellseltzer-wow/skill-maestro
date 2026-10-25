@@ -1,5 +1,6 @@
 # skill-maestro changelog (one line per version; the full histories with every measurement are in the extras package, `skill-maestro-history/`)
 
+- v20.0.3 (2026-10-25): the scrubber lives in the package (`scrub.py`, its own selftest); `survey build` scrubs every row it writes; every mention of the owner's name in the package became "the user" and the two author lines carry the handle only.
 - v20.0.2 (2026-10-25): `cards/tested.jsonl` scrubbed of the owner machine's paths (`<workspace>`, `~/.claude/skills`, `<scratchpad>`); nothing a stranger's install reads changed shape.
 - v20.0.1 (2026-10-25): `references/leitner_checks.json` carries paths relative to the skill root and the doctor resolves them there; a marker in a sibling skill that is not installed reads `absent`, not broken, so a fresh plugin install passes `doctor`.
 - v20 (2026-10-25): the essentials only. The research modules (conduct, inverse, introspect, rerank, fairness) moved to the package `skill-maestro-extras`; a core install prints a one-line hint when one of their commands is asked for and `--selftest` skips them. `intents/intents.json` and its last reader left. The histories, surveys and research notes left the package. SKILL.md halved.

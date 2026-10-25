@@ -54,3 +54,6 @@ This folder is the package and the repository https://github.com/max0wellseltzer
 is its public copy (MIT, `LICENSE`). `.claude-plugin/marketplace.json` lists the package at the repository root, so
 the repository is also the marketplace. The copy is pushed from `plugins/skill-maestro` of the owner's workspace;
 ratings and labels come back through `maestro.py share` bundles (see `SHARING.md`).
+Before a push, `python skills/skill-maestro/scrub.py` (dry run) must report no leftovers: it turns the owner's
+home folder, workspace and name into `~`, `<workspace>` and "the user" across the survey, and `survey build`
+applies the same rules to every row it writes.

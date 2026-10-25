@@ -23,7 +23,7 @@ as `eval` prints it). Re-run the command to check it.
   The rule in `tune` ("only if every unseen set is at least level") held.
 - **Family cap off.** The ablation said removing the family cap raises hits. Tried (dial M12 = 99): top-3 12 -> 13, McNemar on
   the paired vectors p = 1.0, NOT DISTINGUISHABLE. Reverted. Diversity stays because the number does not argue against it.
-- **Owner lexicon.** `hindsight propose --write-lexicon` writes the words Max really uses per skill; dial M37 keeps it at 0
+- **Owner lexicon.** `hindsight propose --write-lexicon` writes the words the user really uses per skill; dial M37 keeps it at 0
   until an eval says otherwise (ablation: lexicon reading COSTS).
 
 ## What we WILL learn with time (the loop is closed, data accrues)
@@ -60,4 +60,4 @@ From `hindsight commands --switches` over every transcript on this PC:
   documented commands was at zero; the least-run are `taste` 3, `anti` 2, `suggest` 2, `whisper` 3, `plan` 5).
 - Dead switches (globals maestro.py defines and never reads): printed by `--switches`; each is a one-line removal candidate.
 - Readings the ablation marks COSTS (lexicon, feedback, intents, eligible rescale) are already at weight 0; their code
-  is the take-away candidate with the strongest evidence. Removing code needs Max's word.
+  is the take-away candidate with the strongest evidence. Removing code needs the user's word.

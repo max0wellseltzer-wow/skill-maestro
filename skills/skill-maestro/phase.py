@@ -245,7 +245,7 @@ def _selftest() -> bool:
         def tool(name, inp):
             return json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}})
         lines = [user("index please"), tool("Skill", {"skill": "skills-index"}), user("check"),
-                 tool("Bash", {"command": "python C:/Users/Max/.claude/skills/skill-health/health.py"}),
+                 tool("Bash", {"command": "python ~/.claude/skills/skill-health/health.py"}),
                  json.dumps({"type": "assistant", "isSidechain": True, "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "ghost"}}]}}),
                  user("<system-reminder>not the owner</system-reminder>"), user("and now?")]
         t.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -206,7 +206,7 @@ def _selftest() -> bool:
         td = Path(td_)
         root = td / "skills"
         for name, desc, tool in [("hysteresis", "A latch. Use this whenever an alert flaps.", True),
-                                 ("plain-terms", "Plain words. Use this whenever Max wants plain language.", False)]:
+                                 ("plain-terms", "Plain words. Use this whenever the user wants plain language.", False)]:
             (root / name).mkdir(parents=True)
             (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n", encoding="utf-8")
             if tool:

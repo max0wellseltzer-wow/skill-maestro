@@ -33,5 +33,5 @@
  "anthropic-skills:pptx": "Slide decks and PowerPoint files (.pptx/.potx): create, read, edit, extract text, combine or split, templates, layouts, speaker notes.",
  "anthropic-skills:skill-creator": "Create a new skill from scratch, modify or improve an existing skill, run evals to test it, benchmark its performance with variance analysis, optimize its description for triggering.",
  "anthropic-skills:xlsx": "Spreadsheets as input or output: open, edit or fix .xlsx/.csv/.tsv, add columns, formulas, formatting, charts, clean messy tabular data, convert between formats.",
- "_note_anthropic_skills": "anthropic-skills:* (Anthropic's plugin, served by the session, no folder on disk) added 2026-10-24 from the session listing; Max: include Anthropic-created skills"
+ "_note_anthropic_skills": "anthropic-skills:* (Anthropic's plugin, served by the session, no folder on disk) added 2026-10-24 from the session listing; the user: include Anthropic-created skills"
 }

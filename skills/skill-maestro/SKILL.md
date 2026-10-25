@@ -112,6 +112,9 @@ SCRIPTS CAN from an AST read (never run; ask before any of it runs), and ranks w
 
 - `maestro.py --selftest` must print PASS before any change lands. `maestro.py doctor` checks the install, the cards'
   `skill_sha` stamps and the pinned claims in `references/leitner_checks.json`.
+- `scrub.py` keeps the package free of the owner's machine: `survey build` passes every row through it, and
+  `python scrub.py [--write]` is the full pass over `cards/tested.jsonl` (home folder to `~`, workspace to
+  `<workspace>`, the owner's name to "the user"). Run it before a public push.
 - `maestro.py eval` is held-out accuracy on the frozen 58; `evals/probes_walkforward_2026-10-16.tsv` (81 real prompts,
   nothing tuned on them) is the honest yardstick. `eval --misses` names every miss; `--null N`, `--ci`, `--armed`,
   `--before DATE`, `--power` are the permutation null, bootstrap interval, planted tripwire, memory cut and

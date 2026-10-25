@@ -1,4 +1,4 @@
-"""Ratings from everyone who uses the Maestro (Max, 2026-10-24: "the ratings will come from everyone who uses the skill
+"""Ratings from everyone who uses the Maestro (the user, 2026-10-24: "the ratings will come from everyone who uses the skill
 and then the ratings will be sent to you or your git hub ... hopefully we can integrate their picks asap").
 
     maestro.py share [--out FILE] [--with-tasks]   write this copy's picks, FIT verdicts and ratings as one bundle

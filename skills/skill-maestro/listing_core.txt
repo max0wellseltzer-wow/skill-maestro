@@ -5,9 +5,9 @@ skill-maestro      # the router itself
 beginner-steps     # "how do I" asks must get steps in the FIRST reply
 escape-proof       # backslash trap before Bash heredocs
 guard-respect      # what to do when tv-guard blocks
-autotrade-start    # session start in C:\Autotrade
+autotrade-start    # session start in <workspace>
 land-a-change      # the landing ritual
 finish-everything  # before every final report
 open-steps-sweep   # before "what's left" / "done"
-decision-menu      # any list of things Max must decide
+decision-menu      # any list of things the user must decide
 numbers-pass       # before reporting a number

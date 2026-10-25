@@ -4,7 +4,7 @@ The rule: a skill's chance of being picked depends on how well it fits the task,
 how often it was used, not how much is written about it, not where it came from, and not how its description talks
 about itself.
 
-Max's words: "make sure skill maestro does not favor skills because they are used more often or because there is more
+the user's words: "make sure skill maestro does not favor skills because they are used more often or because there is more
 information known about some skills more so then others ... or adjacent to that or parallel to that or opposite to
 that or around that".
 
@@ -36,7 +36,7 @@ Re-run the measurements with `python fairness.py all --out FILE`. The records ar
 ## Still open (honest)
 
 - **The labels.** The held-out labels name only custom skills (they were written before plugins existed), so any fix
-  that helps plugins or built-ins looks worse on them. Max's ratings of real sheets (`maestro.py forward`) are the
+  that helps plugins or built-ins looks worse on them. the user's ratings of real sheets (`maestro.py forward`) are the
   unbiased measure.
 - **F2 is saturated.** Every skill's own synthetic query finds it 98.7% of the time, so it cannot show a small
   information bias. A harder test needs queries written without seeing the description.

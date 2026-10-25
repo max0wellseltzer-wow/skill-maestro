@@ -1,4 +1,4 @@
-"""MODES and ASK FIRST (Max, 2026-10-24: "Skill maestro also probably needs dozens and dozens of diffrent modes it can
+"""MODES and ASK FIRST (the user, 2026-10-24: "Skill maestro also probably needs dozens and dozens of diffrent modes it can
 apply to itself for diffrent prompts" and "needs to ask clarifying questions before it does its job so it knows more
 about what is needed for the job").
 
