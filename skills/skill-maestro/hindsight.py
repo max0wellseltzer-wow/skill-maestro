@@ -99,9 +99,14 @@ def _text(content) -> str:
 
 
 def transcript_files(paths) -> list[Path]:
+    """The transcripts under the paths. A folder walk skips subagents/ (about 0.7 GB on this machine, with no owner
+    turn in it); a file named outright is kept."""
     out: list[Path] = []
     for p in map(Path, paths):
-        out.extend(sorted(p.rglob("*.jsonl")) if p.is_dir() else [p] if p.exists() else [])
+        if p.is_dir():
+            out.extend(f for f in sorted(p.rglob("*.jsonl")) if "subagents" not in f.relative_to(p).parts)
+        elif p.exists():
+            out.append(p)
     return out
 
 
@@ -257,21 +262,32 @@ def with_context(rows: list[dict], r: dict, k: int) -> str:
     return " ".join(x["text"][:300] for x in prev[-k:]) + " " + r["text"]
 
 
-def recent_prompts(k: int, exclude: str = "", paths=None, max_age_s: int = 6 * 3600) -> list[str]:
-    """The last k owner prompts of the RUNNING session: the newest transcript under ~/.claude/projects (modified
-    within max_age_s), excluding the prompt being scored. Nothing is written. Empty when no transcript is fresh."""
+def recent_prompts(k: int, exclude: str = "", paths=None, max_age_s: int = 6 * 3600, transcript=None,
+                   session_id=None, why: dict | None = None) -> list[str]:
+    """The last k owner prompts of the RUNNING session written within max_age_s, the prompt being scored and the
+    Maestro's own runs left out. The transcript is the one phase.running_transcript finds: the hook's path, else this
+    session's id (CLAUDE_CODE_SESSION_ID), else the newest one, a guess. Before 2026-10-26 it was always the newest
+    file, and with two sessions open that was often the peer's. `why` (optional) gets how the transcript was found
+    and, when nothing comes back, the reason. Nothing is written."""
+    why = why if why is not None else {}
     if k <= 0:
         return []
-    paths = [Path(p) for p in (paths or [Path.home() / ".claude" / "projects"])]
-    files = [f for f in transcript_files(paths) if f.is_file()]
-    if not files:
+    import phase as P                                       # beside this file (HERE is on sys.path)
+    f, src = P.running_transcript(transcript, paths, session_id, max_age_s, why)
+    h = max_age_s / 3600
+    if f is None:
+        why["empty"] = ("this session's transcript is not on disk" if src.startswith("session id")
+                        else "no transcript on disk" if src == "none on disk"
+                        else f"no transcript written in the last {h:g} h")
         return []
-    newest = max(files, key=lambda f: f.stat().st_mtime)
-    if time.time() - newest.stat().st_mtime > max_age_s:
-        return []
-    texts = [t["text"] for t in iter_turns(newest)]
     ex = (exclude or "").strip()
+    texts = [t["text"] for t in iter_turns(f) if P.fresh(t["ts"], max_age_s=max_age_s)]
     texts = [t for t in texts if t.strip() != ex and not MAESTRO_RUN.search(t)]
+    if not texts:
+        last = P.last_stamp(f) if src in ("session id", "hook") else ""
+        why["empty"] = (f"this session's transcript has had no record since {last[:16].replace('T', ' ')} UTC; "
+                        "Claude Code may have stopped writing it" if last and not P.fresh(last, max_age_s=max_age_s)
+                        else f"no other prompt from the last {h:g} h in that transcript")
     return [t[:300] for t in texts[-k:]]
 
 
@@ -610,7 +626,8 @@ FLAG_RX = re.compile(r"\s(--[a-z][a-z-]+)")
 def command_demand(files, known: set | None = None) -> dict:
     """Count, per Maestro command (and its first flag), how many transcript lines of tool INPUT ran it. Tool results
     and prose never count (a sheet that shows a command is not a run of it). With `known`, a word after maestro.py
-    that is not a command (prose inside a tool input: 'maestro.py was changed') is ignored. Streams line by line."""
+    that is not a command (prose inside a tool input: 'maestro.py was changed') is ignored. Only assistant records
+    count: an api-request-blob line replays earlier messages. Streams line by line."""
     cmds: Counter = Counter()
     flags: Counter = Counter()
     sessions: dict[str, set] = {}
@@ -627,7 +644,7 @@ def command_demand(files, known: set | None = None) -> dict:
                     rec = json.loads(raw)
                 except ValueError:
                     continue
-                if rec.get("isSidechain"):
+                if rec.get("isSidechain") or rec.get("type") != "assistant":
                     continue
                 content = ((rec.get("message") or {}).get("content")) or []
                 for b in content if isinstance(content, list) else []:
@@ -697,17 +714,18 @@ def _vals(argv: list[str], flag: str) -> list[str]:
 
 def cli(argv: list[str], lib, st, root: Path) -> int:
     """argv starts with 'hindsight'."""
+    import phase as P                                       # beside this file (HERE is on sys.path)
     sub = argv[1] if len(argv) > 1 else "status"
     state = Path(st.d)
     rows = rows_of(state)
     if sub == "build":
-        paths = [Path(p) for p in _vals(argv, "--paths")] or [Path.home() / ".claude" / "projects"]
+        paths = [Path(p) for p in _vals(argv, "--paths")] or [P.projects_root()]
         write = getattr(st.append, "__name__", "") != "<lambda>"           # --no-ledger: nothing is written
         s = build(state, paths, set(lib.desc), lib.fs._tokens, write=write, log=print)
         print(render_build(s))
         return 0
     if sub == "commands":                                   # v15 items 26-27: command demand and dead switches
-        paths = [Path(p) for p in _vals(argv, "--paths")] or [Path.home() / ".claude" / "projects"]
+        paths = [Path(p) for p in _vals(argv, "--paths")] or [P.projects_root()]
         src = (M.HERE / "maestro.py").read_text(encoding="utf-8")
         known = documented_commands(M.__doc__ or "") | set(re.findall(r'cmd == "([a-z]+)"', src)) \
             | set(re.findall(r'"([a-z]+)"', src.split("# v15 modules")[0][-600:]))
@@ -866,15 +884,59 @@ def _selftest() -> bool:
                 {"type": "tool_use", "input": {"command": "python maestro.py --selftest"}}]}}) + "\n"
             + json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "python maestro.py eval"}]}}) + "\n"
             + json.dumps({"type": "assistant", "isSidechain": True, "message": {"content": [
-                {"type": "tool_use", "input": {"command": "python maestro.py grade"}}]}}) + "\n", encoding="utf-8")
+                {"type": "tool_use", "input": {"command": "python maestro.py grade"}}]}}) + "\n"
+            + json.dumps({"type": "api-request-blob", "sessionId": "s1", "hash": "h", "message": {
+                "role": "assistant", "content": [{"type": "tool_use", "input": {"command": "python maestro.py score 'x' --full"}}]}})
+            + "\n", encoding="utf-8")
         dem = command_demand([tf])
-        ok["commands: counts tool inputs only (a result and a sidechain never count), per session, with flags"] = \
+        ok["commands: counts tool inputs only (a result, a sidechain and a replayed request blob never count), per session, with flags"] = \
             dem["commands"] == {"score": 2, "--selftest": 1} and dem["sessions"]["score"] == 2 \
             and dem["flags"] == {"score --full": 1}
         ok["commands: dead switch = a global read nowhere else"] = \
             dead_switches("ALPHA = 1\nBETA = 2\nx = ALPHA + 1\n") == ["BETA"]
         rc = render_commands(dem, "python maestro.py score\npython maestro.py eval\n", False, "")
         ok["commands: NEVER RUN names the documented command no transcript ran"] = "NEVER RUN" in rc and "eval" in rc.split("NEVER RUN")[1]
+        import os                                           # 2026-10-26: the running session's prompts, not a peer's
+        rp = td / "rp"
+        own_f, peer_f = rp / "proj" / "own-sess-0001.jsonl", rp / "proj" / "peer-sess-0002.jsonl"
+        sub_f = rp / "proj" / "own-sess-0001" / "subagents" / "agent-x.jsonl"
+        now_ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        for f, recs in ((own_f, [user("2026-01-01T00:00:00Z", "an old prompt from before the file stopped growing"),
+                                 user(now_ts, "fix the beeper latch so it stops flapping on and off"),
+                                 user(now_ts, "python maestro.py score this is the echo")]),
+                        (peer_f, [user(now_ts, "a peer session's prompt about something else entirely")]),
+                        (sub_f, [user(now_ts, "a subagent's prompt")])):
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("\n".join(recs) + "\n", encoding="utf-8")
+        ok["walk: a folder walk skips subagents/; a subagent file named outright is kept"] = \
+            [f.name for f in transcript_files([rp])] == ["own-sess-0001.jsonl", "peer-sess-0002.jsonl"] \
+            and transcript_files([sub_f]) == [sub_f]
+        t0 = time.time()
+        os.utime(own_f, (t0 - 300, t0 - 300))
+        os.utime(peer_f, (t0 - 30, t0 - 30))
+        w1, w2, w3, w4 = {}, {}, {}, {}
+        ok["context: this session's own prompts by id, the stale one and the Maestro's echo left out"] = \
+            recent_prompts(2, paths=[rp], session_id="own-sess-0001", why=w1) == ["fix the beeper latch so it stops flapping on and off"] \
+            and w1.get("source") == "session id" and "empty" not in w1
+        ok["context: with no session id the newest file is a guess, and here it is the peer's"] = \
+            recent_prompts(2, paths=[rp], session_id="", why=w2) == ["a peer session's prompt about something else entirely"] \
+            and w2.get("source") == "newest (a guess)"
+        ok["context: a session id with no file gives nothing and says why"] = \
+            recent_prompts(2, paths=[rp], session_id="gone-sess-0003", why=w3) == [] \
+            and w3.get("empty") == "this session's transcript is not on disk"
+        ok["context: when the only fresh prompt is the task itself, the reason is given"] = \
+            recent_prompts(2, exclude="fix the beeper latch so it stops flapping on and off", paths=[rp],
+                           session_id="own-sess-0001", why=w4) == [] \
+            and w4.get("empty") == "no other prompt from the last 6 h in that transcript"
+        ok["context: the hook's path wins"] = \
+            recent_prompts(2, paths=[rp], session_id="own-sess-0001", transcript=peer_f) == ["a peer session's prompt about something else entirely"]
+        rs = td / "rs"                                      # a transcript Claude Code stopped writing says so
+        (rs / "proj").mkdir(parents=True)
+        (rs / "proj" / "stale-sess-0004.jsonl").write_text(user("2026-01-01T00:00:00Z", "an old prompt") + "\n", encoding="utf-8")
+        w5 = {}
+        ok["context: a transcript with no recent record says when it stopped, not that no prompt came"] = \
+            recent_prompts(2, paths=[rs], session_id="stale-sess-0004", why=w5) == [] \
+            and w5.get("empty", "").startswith("this session's transcript has had no record since 2026-01-01 00:00 UTC")
     ok = {k: bool(v) for k, v in ok.items()}
     print(f"hindsight selftest: {sum(ok.values())}/{len(ok)} " + ("PASS" if all(ok.values()) else "FAIL"))
     for k, v in ok.items():

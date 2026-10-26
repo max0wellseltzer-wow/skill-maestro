@@ -77,7 +77,9 @@ MODE line and the ASK FIRST questions; NEEDED (operations no skill does well: sk
 cost line. Before it lists anything it reads GOAL and LIMIT lines (from `MAESTRO_PROJECT.md` or the project's
 CLAUDE.md), runs each pick's own `--selftest` (NEEDS <pkg> is kept, BROKEN is swapped out), lists SIDE EFFECTS and
 SCRIPTS CAN from an AST read (never run; ask before any of it runs), and ranks with the session's last 2 prompts
-(dial M41; `--context 0` turns it off). `--full` prints every section; `--brief` filters it to the working lines.
+(dial M41; `--context 0` turns it off). The prompts come from this session's own transcript, found by its id (with no
+id the newest transcript is a guess and the CONTEXT line says so); `doctor` flags a transcript Claude Code stopped
+writing. `--full` prints every section; `--brief` filters it to the working lines.
 
 ## 3. Prove, then read only what fits
 

@@ -3147,6 +3147,27 @@ def findable_v17(lib: "Library", name: str, d: str, body: str, md: Path | None) 
     return fixes
 
 
+FOUND_BY = {"hook": "named by the hook", "session id": "found by session id",
+            "newest (a guess)": "a guess: no session id, so it may be another session's"}
+
+
+def context_line(prev: list, why: dict) -> str | None:
+    """The sheet's CONTEXT line (2026-10-26): which transcript the session's prompts came from and how it was found,
+    or why the task was ranked alone. Before, the newest transcript was read as this session's; with two sessions open
+    it was often the peer's, and the line said "of this session" all the same."""
+    src = str(why.get("source") or "")
+    where = f"transcript {why.get('session') or '?'}, {FOUND_BY.get(src, src or 'found by an unknown route')}"
+    if prev:
+        whose = "the newest transcript" if src == "newest (a guess)" else "this session"
+        return (f"CONTEXT: ranked with the last {len(prev)} prompt(s) of {whose} ({where}; dial M41; "
+                f"`--context 0` to rank the task alone)")
+    if why.get("empty"):
+        tail = (f"; session {why.get('session') or '?'}" if src.startswith("session id (")
+                else f"; {where}" if src in FOUND_BY else "")
+        return f"CONTEXT: none, the task ranked alone ({why['empty']}{tail})"
+    return None
+
+
 def tokens_of(text: str) -> int:
     return (len(text) + 3) // 4                             # ~4 characters per token (English prose and code)
 
@@ -3845,7 +3866,7 @@ def render(sheet: dict) -> str:
     if sheet.get("ponder_debt"):
         L.insert(0, f"PONDER DEBT: {len(sheet['ponder_debt'])} earlier run(s) were never pondered (latest "
                     f"{', '.join(sheet['ponder_debt'][-3:])}): `maestro.py ponder <run>` or close them")
-    for key in ("odds", "hindsight"):                      # v15
+    for key in ("session_ctx", "odds", "hindsight"):       # v15; 2026-10-26: the CONTEXT line in the full sheet too
         if sheet.get(key):
             L.append(sheet[key])
     if sheet["chosen"]:
@@ -4510,6 +4531,18 @@ def _selftest() -> bool:
                   and eval_null([{"m": ["a"], "good": ["a"]}, {"m": ["a"], "good": ["a"]}], 20)["p"] == 1.0   # ties count: p is 1, not 0
                   and eval_ci([1, 0, 1, 1])["hits"] == 3 and mcnemar([1, 0, 0], [1, 1, 1])["b_only"] == 2
                   and mcnemar([1], [1, 0])["ok"] is False and mcnemar([1, 1], [1, 1])["verdict"] == "IDENTICAL")
+    ok.append(context_line(["a", "b"], {"source": "session id", "session": "b0f113f4"}).startswith(
+                  "CONTEXT: ranked with the last 2 prompt(s) of this session (transcript b0f113f4, found by session id;")
+              and "of the newest transcript (transcript 22b0013f, a guess" in context_line(["a"], {"source": "newest (a guess)", "session": "22b0013f"})
+              and context_line([], {"source": "session id", "session": "b0f113f4", "empty": "no other prompt"})
+              == "CONTEXT: none, the task ranked alone (no other prompt; transcript b0f113f4, found by session id)"
+              and context_line([], {"source": "session id (no transcript on disk)", "session": "b0f113f4",
+                                    "empty": "this session's transcript is not on disk"}).endswith("; session b0f113f4)")
+              and context_line([], {"source": "none on disk", "session": "", "empty": "no transcript on disk"})
+              == "CONTEXT: none, the task ranked alone (no transcript on disk)"
+              and context_line([], {}) is None)              # 2026-10-26: the CONTEXT line names its transcript
+    if __name__ == "__main__":                               # 2026-10-26: the hook's whisper ranks inside concert.py; run from
+        ok.append(_load(HERE / "concert.py", "concert")._maestro().HOOK is HOOK)   # here it reuses this module and its HOOK
     for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase", "scrub"):   # v15/v16 + 2026-10-24/25: the modules beside this file
         if _module_path(mod) is None and mod in EXTRA_MODULES:     # v20: an extra that is not installed is not a failure
             print(f"  {mod}: not installed ({EXTRAS_PKG}); its selftest is skipped")
@@ -4680,12 +4713,14 @@ def main(argv: list[str]) -> int:
             concepts_in = row["concepts"]
             print(f"(concepts reused from run {row['run']}: {concepts_in[:120]})")
         k_ctx = int(_opt(argv, "--context")) if _opt(argv, "--context") else CONTEXT_PROMPTS   # v16 M41
-        prev = []
+        prev, ctx_why = [], {}
         if k_ctx > 0:
             try:
-                prev = _load(HERE / "hindsight.py", "hindsight").recent_prompts(k_ctx, exclude=task)
-            except Exception:  # noqa: BLE001
+                prev = _load(HERE / "hindsight.py", "hindsight").recent_prompts(
+                    k_ctx, exclude=task, transcript=HOOK.get("transcript"), why=ctx_why)   # 2026-10-26: this session's, by id
+            except Exception as e:  # noqa: BLE001
                 prev = []
+                ctx_why["empty"] = f"the context reader failed: {type(e).__name__}"   # said, never silent
         if WEIGHTS.get("phase"):                                # 2026-10-25 (M52): the skills this session just used
             try:
                 lib.phase_context = _load(HERE / "phase.py", "phase").live_context(st.d, HOOK.get("transcript"))
@@ -4693,8 +4728,7 @@ def main(argv: list[str]) -> int:
                 lib.phase_context = None
         sheet = score(lib, st, task, top, "--graph" in flags, qs, concepts_in, session_ctx=" ".join(prev),
                       subject=_opt(argv, "--subject"), mode=_opt(argv, "--mode"))        # v18: name the subject at score time
-        sheet["session_ctx"] = (f"CONTEXT: ranked with the last {len(prev)} prompt(s) of this session (dial M41; `--context 0` to rank the task alone)"
-                                if prev else None)
+        sheet["session_ctx"] = context_line(prev, ctx_why) if k_ctx > 0 else None   # 2026-10-26: names its transcript, or why none
         try:                                                # v15: odds and hindsight lines (never a ranking input)
             w15 = set(lib.fs._tokens(lib.variants(task)["_plain"]))
             sheet["odds"] = (_load(HERE / "introspect.py", "introspect").odds_line(st.rows(), w15)
@@ -5225,7 +5259,7 @@ def main(argv: list[str]) -> int:
         try:
             return _load(HERE / f"{mod}.py", mod).cli(argv[argv.index(cmd):], lib, st, root)
         except ImportError as exc:                            # v20: the research commands ship in skill-maestro-extras
-            if type(exc).__name__ != "ExtraMissing":         # concert.py imports maestro as a second module: match by name
+            if type(exc).__name__ != "ExtraMissing":         # a module may hold its own copy of maestro: match by name
                 raise
             print(f"{cmd}: {exc}")
             return 2

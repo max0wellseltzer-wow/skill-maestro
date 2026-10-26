@@ -29,11 +29,18 @@ M = None   # the maestro module, set by _maestro()
 
 
 def _maestro():
+    """The maestro module. Run from maestro.py it is that running module, so the dials main() applied and the hook's
+    transcript_path (HOOK) hold here too. 2026-10-26: a second copy kept the code's defaults (weight_concept 2.0 where
+    the panel says 0.0) and its HOOK never saw the hook's transcript. Imported any other way: a fresh copy."""
     global M
     if M is None:
-        spec = importlib.util.spec_from_file_location("maestro", HERE / "maestro.py")
-        M = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(M)
+        main = sys.modules.get("__main__")
+        if Path(getattr(main, "__file__", None) or ".").resolve() == HERE / "maestro.py":
+            M = main
+        else:
+            spec = importlib.util.spec_from_file_location("maestro", HERE / "maestro.py")
+            M = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(M)
     return M
 
 
@@ -174,7 +181,39 @@ def doctor(lib, st, root: Path) -> list[dict]:
                    "found": f"{pins['held']} hold, {len(pins['broken'])} broken" + (f": {', '.join(pins['broken'][:3])}" if pins["broken"] else "")
                             + (f", {len(pins['absent'])} absent (sibling skill not installed)" if pins.get("absent") else ""),
                    "fix": "a standing claim's marker text is gone from its file: re-check the claim and update references/leitner_checks.json"})
+    try:                                                    # 2026-10-26: a transcript Claude Code stopped writing
+        checks.append(transcript_check(M_._load(HERE / "phase.py", "phase")))
+    except Exception as exc:  # noqa: BLE001
+        checks.append({"name": "this session's transcript (context, phase)", "ok": False, "found": str(exc)[:80],
+                       "fix": "reinstall the Maestro: phase.py is a core file and it did not load"})
     return checks
+
+
+def transcript_check(P_, paths=None, session_id=None) -> dict:
+    """The doctor's line for the running session's transcript, which feeds CONTEXT and the phase reading. Found
+    2026-10-26: Claude Code had stopped writing a running session's transcript a day before, so every task ranked
+    alone and nothing said so."""
+    why: dict = {}
+    f, src = P_.running_transcript(None, paths, session_id, P_.MAX_AGE_S, why)
+    sid8 = why.get("session", "")
+    c = {"name": "this session's transcript (context, phase)", "ok": True, "found": "", "fix": ""}
+    if f is None and src.startswith("session id"):
+        c.update(ok=False, found=f"{sid8} by session id: no transcript on disk",
+                 fix="optional: set CLAUDE_CONFIG_DIR to the folder Claude Code keeps its files in; "
+                     "without a transcript each task ranks alone")
+    elif f is None:
+        c["found"] = ("no transcript yet: each task ranks alone" if src == "none on disk"
+                      else f"no session id: no transcript newer than {P_.MAX_AGE_S // 3600} h")
+    elif src != "session id":
+        c["found"] = f"no session id: newest transcript {sid8}, a guess"
+    else:
+        last = P_.last_stamp(f)
+        c.update(ok=not last or P_.fresh(last),
+                 found=f"{sid8} by session id, last record "
+                       + (f"{last[:16].replace('T', ' ')} UTC" if last else "not stamped yet"),
+                 fix="Claude Code stopped writing this session's transcript, so each task ranks alone and this "
+                     "session teaches the Maestro nothing: start a new session; the Maestro needs no fix")
+    return c
 
 
 def pinned_receipts(path: Path) -> dict:
@@ -778,6 +817,25 @@ def _selftest() -> bool:
         and all(r["run"] == f"quick-{now - 10}" for r in _r))
     ok["thumbs by run id still reaches the SCORE row; nothing to rate says RUN_UNKNOWN"] = (
         "run a:" in thumbs(_st, "a", "down", None, "") and thumbs(_St([]), "last", "up", None, "").startswith("RUN_UNKNOWN"))
+    spec = importlib.util.spec_from_file_location("phase_doctor_t", HERE / "phase.py")     # the doctor's transcript line
+    P_ = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(P_)
+    with tempfile.TemporaryDirectory() as td2:
+        pj = Path(td2) / "projects" / "p"
+        pj.mkdir(parents=True)
+        (Path(td2) / "empty").mkdir()
+        for sid, age in (("live-sess-0001", 60), ("dead-sess-0002", 86400)):
+            ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() - age))
+            (pj / f"{sid}.jsonl").write_text(json.dumps({"type": "user", "timestamp": ts, "message": {
+                "role": "user", "content": "a prompt"}}) + "\n", encoding="utf-8")
+        roots = [Path(td2) / "projects"]
+        live, dead = transcript_check(P_, roots, "live-sess-0001"), transcript_check(P_, roots, "dead-sess-0002")
+        ok["doctor: this session's transcript is ok while it is written, flagged once Claude Code stopped writing it"] = (
+            live["ok"] and "live-ses by session id" in live["found"] and not dead["ok"] and "start a new session" in dead["fix"])
+        guess, empty = transcript_check(P_, roots, ""), transcript_check(P_, [Path(td2) / "empty"], "")
+        ok["doctor: an id with no transcript fails; no id is a guess; an empty folder ranks alone"] = (
+            not transcript_check(P_, roots, "gone-sess-0003")["ok"] and guess["ok"] and "a guess" in guess["found"]
+            and empty["ok"] and "no transcript yet" in empty["found"])
     bad = [k for k, v in ok.items() if not v]
     print(f"concert selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad

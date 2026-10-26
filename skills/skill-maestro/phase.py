@@ -17,7 +17,9 @@ Nothing here leaves the machine; nothing is written. Fused with weight_phase (di
 """
 from __future__ import annotations
 
+import calendar
 import json
+import os
 import re
 import time
 from collections import Counter
@@ -29,6 +31,9 @@ SELF = "skill-maestro"
 SWEEP_MAX = 12        # as hindsight.py: more skills after one prompt is a library audit, not a choice
 TAIL_BYTES = 4 * 1024 * 1024
 MAX_AGE_S = 6 * 3600
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"   # 2026-10-26: Claude Code names the running session; its file is <id>.jsonl
+SESSION_ID = re.compile(r"[0-9A-Za-z-]{8,64}")   # an id, never a glob or a path
+STAMP = re.compile(r'"timestamp":\s*"(\d{4}-\d\d-\d\d[T ][^"]*)"')   # a record's own stamp; an escaped quote never matches
 SKILL_PATH = re.compile(r"skills[\\/]+([a-z0-9]+(?:-[a-z0-9]+)*)[\\/]")
 NOT_OWNER = ("<", "Another Claude session", "This session is being continued", "Base directory", "[Request interrupted")
 _ROWS: dict[tuple, list[dict]] = {}
@@ -155,10 +160,13 @@ def _text(content) -> str:
     return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
 
 
-def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES) -> list[list[str]]:
+def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES,
+              max_age_s: int | None = None) -> list[list[str]]:
     """The used lists of the last k owner turns (that used anything) in a transcript's tail: Skill tool calls and
     skills/<name>/ paths in tool inputs, as hindsight.py reads them, from the last `max_bytes` only. The newest turn
-    (the prompt being ranked, when the harness has already written it) has no uses yet and is skipped."""
+    (the prompt being ranked, when the harness has already written it) has no uses yet and is skipped. With max_age_s,
+    a turn whose prompt is older than that is dropped: a file's tail is not the session's tail when the file stopped
+    growing (2026-10-26: a continued session's transcript held only the day before)."""
     p = Path(transcript)
     try:
         size = p.stat().st_size
@@ -169,7 +177,7 @@ def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES) ->
             data = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return []
-    turns: list[set] = []
+    turns: list[tuple] = []
     cur: set | None = None
     for raw in data.splitlines():
         is_user = '"user"' in raw and '"tool_result"' not in raw
@@ -187,7 +195,7 @@ def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES) ->
             text = _text(content).strip()
             if text and not text.startswith(NOT_OWNER):
                 cur = set()
-                turns.append(cur)
+                turns.append((rec.get("timestamp"), cur))
         elif rec.get("type") == "assistant" and cur is not None and isinstance(content, list):
             for b in content:
                 if not (isinstance(b, dict) and b.get("type") == "tool_use"):
@@ -197,23 +205,111 @@ def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES) ->
                     cur.add(str(inp["skill"]).split(":")[-1])
                 for m in SKILL_PATH.finditer(json.dumps(inp)):
                     cur.add(m.group(1))
-    out = [used_of({"used": sorted(t)}) for t in turns]
+    out = [used_of({"used": sorted(t)}) for ts, t in turns if fresh(ts, max_age_s=max_age_s)]
     return [u for u in out if u][-k:]
 
 
-def live_context(state: Path, transcript: str | Path | None = None, k: int = RECENT, max_age_s: int = MAX_AGE_S) -> list[list[str]]:
-    """The running session's context: the transcript the hook names (transcript_path), else the newest transcript
-    under ~/.claude/projects when it was written within max_age_s. Empty when there is none."""
+def fresh(ts, now: float | None = None, max_age_s: int | None = MAX_AGE_S) -> bool:
+    """A transcript stamp ("2026-10-26T13:05:00.123Z", UTC, or a hindsight row's "2026-10-26 13:05") written within
+    max_age_s of now. None means no limit. An empty or unreadable stamp counts as fresh: only a dated turn is dropped."""
+    if max_age_s is None:
+        return True
+    try:
+        t = calendar.timegm(time.strptime(str(ts)[:16].replace("T", " "), "%Y-%m-%d %H:%M"))
+    except (TypeError, ValueError, OverflowError):
+        return True
+    return (time.time() if now is None else now) - t <= max_age_s + 60     # the stamp is cut to the minute
+
+
+def projects_root() -> Path:
+    """Where Claude Code keeps session transcripts: <CLAUDE_CONFIG_DIR>/projects when that is set, else
+    ~/.claude/projects."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+
+
+def last_stamp(path, tail: int = 1 << 20) -> str:
+    """The newest record stamp in a transcript ("2026-10-25T18:05:11.653Z", UTC), or "" when it has none or cannot be
+    read. Reads backwards `tail` bytes at a time, so a 100 MB transcript costs one chunk. A file's mtime is not its
+    age: on 2026-10-26 a running session's transcript had a fresh mtime while its newest record was a day old."""
+    try:
+        with open(path, "rb") as fh:
+            end = fh.seek(0, 2)
+            while end > 0:
+                start = max(0, end - tail)
+                fh.seek(start)
+                found = STAMP.findall(fh.read(end - start + 64).decode("utf-8", errors="replace"))   # 64: a stamp on the cut
+                if found:
+                    return max(found)
+                end = start
+    except OSError:
+        pass
+    return ""
+
+
+def _candidates(roots, name: str = "*") -> list[Path]:
+    """Session transcripts under the roots: <root>/<name>.jsonl and <root>/*/<name>.jsonl (a project folder), never a
+    subagent's file one level further down (<session>/subagents/agent-*.jsonl). A root that is a .jsonl file counts
+    when the name is "*" or its stem."""
+    seen: set = set()
+    out: list[Path] = []
+    for r in map(Path, roots):
+        if r.is_dir():
+            found = [*r.glob(f"{name}.jsonl"), *r.glob(f"*/{name}.jsonl")]
+        else:
+            found = [r] if r.suffix == ".jsonl" and name in ("*", r.stem) else []
+        for f in found:
+            if f.is_file() and f not in seen:
+                seen.add(f)
+                out.append(f)
+    return out
+
+
+def _mtime(f: Path) -> float:
+    try:
+        return f.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def running_transcript(transcript=None, paths=None, session_id=None, max_age_s: int | None = MAX_AGE_S,
+                       why: dict | None = None) -> tuple:
+    """(the running session's transcript or None, how it was found). In order: the path the hook names
+    (transcript_path); the session id (CLAUDE_CODE_SESSION_ID, or `session_id`, where "" means none) as <id>.jsonl
+    under projects_root(); else the newest transcript written within max_age_s, which is only a guess. Found
+    2026-10-26: with two sessions open the newest file was the peer's, so its prompts ranked this session's tasks.
+    `why` (optional) gets {"source", "session"}: how it was found and the first 8 characters of the session."""
+    why = why if why is not None else {}
+    roots = [Path(p) for p in (paths or [projects_root()])]
     p = Path(transcript) if transcript else None
-    if p is None or not p.is_file():
-        home = Path.home() / ".claude" / "projects"
-        files = [f for f in home.glob("*/*.jsonl") if f.is_file()] if home.is_dir() else []
-        if not files:
-            return []
-        p = max(files, key=lambda f: f.stat().st_mtime)
-        if time.time() - p.stat().st_mtime > max_age_s:
-            return []
-    return tail_used(p, k)
+    if p is not None and p.is_file():
+        why.update(source="hook", session=p.stem[:8])
+        return p, "hook"
+    sid = os.environ.get(SESSION_ENV, "") if session_id is None else str(session_id)
+    if sid and SESSION_ID.fullmatch(sid):
+        files = _candidates(roots, sid)
+        if files:
+            why.update(source="session id", session=sid[:8])
+            return max(files, key=_mtime), "session id"
+        why.update(source="session id (no transcript on disk)", session=sid[:8])
+        return None, why["source"]
+    files = _candidates(roots)
+    if not files:
+        why.update(source="none on disk", session="")
+        return None, "none on disk"
+    newest = max(files, key=_mtime)
+    if max_age_s is not None and time.time() - _mtime(newest) > max_age_s:
+        why.update(source="newest (stale)", session=newest.stem[:8])
+        return None, "newest (stale)"
+    why.update(source="newest (a guess)", session=newest.stem[:8])
+    return newest, "newest (a guess)"
+
+
+def live_context(state: Path, transcript: str | Path | None = None, k: int = RECENT, max_age_s: int = MAX_AGE_S,
+                 paths=None, session_id=None, why: dict | None = None) -> list[list[str]]:
+    """The running session's context: the used turns of the last max_age_s in the transcript running_transcript
+    finds (the hook's path, else this session's id, else the newest one, a guess). Empty when there is none."""
+    p, _ = running_transcript(transcript, paths, session_id, max_age_s, why)
+    return tail_used(p, k, max_age_s=max_age_s) if p is not None else []
 
 
 def _selftest() -> bool:
@@ -253,7 +349,59 @@ def _selftest() -> bool:
         ok["a sidechain's Skill call is not this session's"] = all("ghost" not in u for u in tail_used(t))
         ok["a tail cut inside the first prompt reads the whole turns after it"] = tail_used(t, max_bytes=t.stat().st_size - 10) == [["skill-health"]]
         ok["live_context takes the named transcript"] = live_context(Path(td), t) == [["skills-index"], ["skill-health"]]
-        ok["no fresh transcript, no context"] = live_context(Path(td), Path(td) / "missing.jsonl", max_age_s=0) == []
+        ok["no fresh transcript, no context"] = live_context(Path(td), Path(td) / "missing.jsonl", max_age_s=-1,
+                                                             paths=[Path(td)], session_id="") == []
+        projects = Path(td) / "projects"                    # 2026-10-26: this session's transcript, found by its id
+        own_sid, peer_sid = "own-sess-0001", "peer-sess-0002"
+        own, peer = projects / "projA" / f"{own_sid}.jsonl", projects / "projB" / f"{peer_sid}.jsonl"
+        sub = projects / "projA" / own_sid / "subagents" / "agent-x.jsonl"
+        for f in (own, peer, sub):
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        now = time.time()
+        os.utime(own, (now - 600, now - 600))
+        os.utime(peer, (now - 60, now - 60))
+        os.utime(sub, (now, now))
+        why: dict = {}
+        ok["the session id finds this session's transcript, not the newer peer's"] = \
+            running_transcript(None, [projects], own_sid, why=why) == (own, "session id") \
+            and why == {"source": "session id", "session": "own-sess"}
+        ok["no session id: the newest top-level transcript, called a guess; a subagent's file is never picked"] = \
+            running_transcript(None, [projects], "") == (peer, "newest (a guess)")
+        ok["a session id with no transcript on disk gives none, never a guess"] = \
+            running_transcript(None, [projects], "gone-sess-0003") == (None, "session id (no transcript on disk)")
+        ok["a session id that is not an id (a glob) is not used as one"] = \
+            running_transcript(None, [projects], "*")[1] == "newest (a guess)"
+        ok["the hook's path wins over the session id"] = running_transcript(peer, [projects], own_sid) == (peer, "hook")
+        ok["live_context reads the session id's transcript"] = \
+            live_context(Path(td), None, paths=[projects], session_id=own_sid) == [["skills-index"], ["skill-health"]]
+        stale = Path(td) / "stale.jsonl"
+        now_ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        stale.write_text("\n".join([
+            json.dumps({"type": "user", "timestamp": "2026-01-01T00:00:00.000Z", "message": {"role": "user", "content": "old ask"}}),
+            tool("Skill", {"skill": "skills-index"}),
+            json.dumps({"type": "user", "timestamp": now_ts, "message": {"role": "user", "content": "fresh ask"}}),
+            tool("Skill", {"skill": "skill-health"}), user("the prompt being ranked")]) + "\n", encoding="utf-8")
+        ok["a turn older than max_age_s is not the session's context; a fresh one is"] = \
+            tail_used(stale, max_age_s=MAX_AGE_S) == [["skill-health"]] and tail_used(stale) == [["skills-index"], ["skill-health"]]
+        ok["fresh(): an old stamp is stale, now is fresh, no stamp or no limit counts as fresh"] = \
+            not fresh("2026-01-01T00:00:00Z") and fresh(now_ts) and fresh("") and fresh(None) \
+            and fresh("2026-01-01 00:00", max_age_s=None)
+        ok["last_stamp: the newest record's stamp, read backwards in chunks; no stamp or no file gives nothing"] = \
+            last_stamp(stale) == now_ts and last_stamp(stale, tail=10) == now_ts and last_stamp(t) == "" \
+            and last_stamp(Path(td) / "missing.jsonl") == ""
+        old_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        try:
+            os.environ["CLAUDE_CONFIG_DIR"] = td
+            in_cfg = projects_root() == Path(td) / "projects"
+            os.environ.pop("CLAUDE_CONFIG_DIR")
+            ok["projects_root: <CLAUDE_CONFIG_DIR>/projects when it is set, else ~/.claude/projects"] = \
+                in_cfg and projects_root() == Path.home() / ".claude" / "projects"
+        finally:
+            if old_cfg is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = old_cfg
     bad = [k for k, v in ok.items() if not v]
     print(f"phase selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad
