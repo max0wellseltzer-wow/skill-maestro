@@ -223,6 +223,8 @@ def render_doctor(checks: list[dict]) -> str:
         L.append("  then run `python maestro.py doctor` again until every line says ok.")
     else:
         L.append("READY: python maestro.py score \"<your task in your own words>\"")
+        if __import__("os").environ.get("DO_NOT_TRACK", "") in ("", "0"):      # the console convention; the pointer is the only ask, ever
+            L.append("HELP: python maestro.py contribute   (ways to help the Maestro, 30 seconds to an hour; nothing is sent by itself)")
     return "\n".join(L)
 
 

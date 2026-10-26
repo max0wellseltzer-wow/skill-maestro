@@ -28,7 +28,9 @@ Pure Python 3.10+, standard library only. Nothing leaves the machine; `--no-ledg
 - **1 to 22 picks**, sized by the task (one for a short ask, about two per sentence); never a fixed top 3.
 - **Anthropic's skills are full candidates** (`builtins.json`), loaded or not.
 - **A mode per prompt** (`modes.py`): the mode whose `when` text means most what the prompt means is printed with HOW TO
-  USE THE PICKS and clamps the pick count. `--mode NAME` forces one; `maestro.py modes` lists them.
+  USE THE PICKS and clamps the pick count. `--mode NAME` forces one; `maestro.py modes` lists them. Your own modes live
+  in `<state>/modes.json` (`modes add NAME "when" [--picks lo-hi] [--direct "..."] [--ask "q=default"]`, `modes remove`,
+  `modes template`): same shape, chosen by meaning like the built-ins; one with a built-in's name replaces it.
 - **ASK FIRST** (dial M50): the sheet lists up to four questions the prompt leaves open, each with its default. Claude
   asks them in one AskUserQuestion call, then conducts.
 - **Your own Maestro** (`personal.py`, dial M48): the skills this person used and rated after prompts that mean what
@@ -99,10 +101,13 @@ SCRIPTS CAN from an AST read (never run; ask before any of it runs), and ranks w
 
 - `maestro.py rate RUN SKILL useful|unused|wrong ["why"]`; `thumbs RUN|last up|down [SKILL]` is the one-keystroke
   owner rating. Every structured FIT is also a label for the learned judge.
-- `maestro.py share` writes this copy's picks, FIT verdicts and ratings as one bundle (paths, e-mails and keys masked;
-  task text left out unless `--with-tasks`). Send it as an issue or pull request on the Maestro's repository.
-  `maestro.py intake FILE|DIR` folds bundles in; `maestro.py community` shows who sent what. `private` is on by
-  default: `share` writes nothing until `maestro.py private off`.
+- `maestro.py contribute` lists every way to help the Maestro by the time it takes (30 seconds to an hour), with this
+  copy's own counts; `doctor` points to it once. Nothing is sent by itself, ever; `DO_NOT_TRACK=1` silences the pointer.
+- `maestro.py share --preview` prints what a bundle would hold and writes nothing; `share` writes this copy's picks, FIT
+  verdicts and ratings as one bundle (paths, e-mails and keys masked; task text left out unless `--with-tasks`);
+  `share --issue` also prints a prefilled issue link on the Maestro's repository (counts only; the rows travel in the
+  file you attach). `maestro.py intake FILE|DIR` folds bundles in; `maestro.py community` shows who sent what. `private`
+  is on by default: `share` writes nothing until `maestro.py private off`. `SHARING.md` lists what leaves the machine.
 - `maestro.py debt` lists unrated runs (`--close-older-than 3` closes stale ones); `cost` shows what the Maestro cost
   and bought; `grade` is the monthly report card.
 - In a cloud session the ledger lives in the repo (`shared/skill-maestro/ledger.jsonl`, merge=union). Commit it with

@@ -2,8 +2,14 @@
 and then the ratings will be sent to you or your git hub ... hopefully we can integrate their picks asap").
 
     maestro.py share [--out FILE] [--with-tasks]   write this copy's picks, FIT verdicts and ratings as one bundle
+    maestro.py share --preview                     print the bundle it would write; writes nothing (allowed in private mode)
+    maestro.py share --issue                       write the bundle and print a prefilled GitHub issue link to attach it to
     maestro.py intake FILE|DIR ...                 fold other people's bundles into state/community/ (read as DATA)
     maestro.py community                           who sent what, and how many of their ratings the sheet now reads
+    maestro.py contribute                          every way to help the Maestro, by the time it takes (30 s / 5 min / 1 h)
+
+Nothing is sent by itself, ever: `share` writes a file this person reads and attaches; `--issue` only prints a link
+whose query holds the summary counts (never a row). DO_NOT_TRACK=1 makes `share` write nothing and prints why.
 
 A bundle is JSON: {"format": "maestro-ratings/1", "from": <anonymous id>, "created", "code", "rows": [...]}.
 Rows are SCORE (the picks and the pool), FIT (the structured verdict), RATE and READ. Task text is left out unless
@@ -16,12 +22,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import re
 import time
+import urllib.parse
 from pathlib import Path
 
 FORMAT = "maestro-ratings/1"
+REPO = "https://github.com/max0wellseltzer-wow/skill-maestro"       # the only destination; a fork changes this one line
+ISSUE_TEMPLATE = "ratings-bundle.yml"                                # .github/ISSUE_TEMPLATE on that repository
+URL_LIMIT = 7500                                                     # browsers and GitHub truncate longer prefilled links
 KINDS = ("SCORE", "FIT", "RATE", "READ")
 SCORE_KEYS = ("run", "chosen", "pool_names", "finder_top", "concepts", "questions", "words", "task_sha", "code", "t")
 MASKS = [(re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "<email>"),
@@ -144,18 +155,93 @@ def summary(state_dir: Path) -> str:
     return "\n".join(L)
 
 
-def run(argv: list[str], st, state_dir: Path, code: str = "") -> int:
+def counts(rows: list[dict]) -> dict:
+    n = {}
+    for r in rows:
+        n[r.get("kind")] = n.get(r.get("kind"), 0) + 1
+    return n
+
+
+def _counts_line(n: dict) -> str:
+    return ", ".join(f"{v} {k}" for k, v in sorted(n.items())) or "0 rows"
+
+
+def do_not_track() -> bool:
+    """The console DO_NOT_TRACK convention (any value but empty or 0): share writes nothing, doctor drops the pointer."""
+    return os.environ.get("DO_NOT_TRACK", "") not in ("", "0")
+
+
+def issue_url(bundle: dict, out: Path | None, with_tasks: bool = False) -> str:
+    """A prefilled GitHub issue link. Only the summary travels in the URL (counts, sender, code, file name); the rows go
+    in the attached file. Under URL_LIMIT by construction; asserted anyway because the link lands in browser history."""
+    n = counts(bundle["rows"])
+    summary = (f"Maestro ratings bundle from sender {bundle['from']} (code {bundle.get('code') or '?'}): "
+               f"{_counts_line(n)}; task text {'included' if with_tasks else 'left out (sha + words only)'}; "
+               f"file {out.name if out else '(attach the share file)'}. "
+               f"I read the file before attaching it.")
+    q = {"template": ISSUE_TEMPLATE, "title": f"ratings bundle {bundle['from']}", "summary": summary}
+    url = f"{REPO}/issues/new?" + urllib.parse.urlencode(q, quote_via=urllib.parse.quote)
+    assert len(url) < URL_LIMIT, len(url)
+    return url
+
+
+def contribute_text(rows: list[dict], private: bool | None) -> str:
+    """Every way to help, by the time it takes. Printed on request only (`maestro.py contribute`); nothing runs."""
+    mine = [r for r in rows if not r.get("community_from")]
+    n = counts(mine)
+    owner_rates = sum(1 for r in mine if r.get("kind") == "RATE" and r.get("by") not in (None, "claude"))
+    priv = "unknown" if private is None else ("ON (share writes nothing until `maestro.py private off`)" if private else "OFF")
+    L = ["CONTRIBUTE: ways to help the Maestro, by the time they take. Nothing here runs or sends by itself.",
+         f"  You so far: {n.get('SCORE', 0)} runs scored, {n.get('FIT', 0)} FIT verdicts, {owner_rates} ratings by you "
+         f"({n.get('RATE', 0) - owner_rates} by Claude). Private mode: {priv}.",
+         "",
+         "  30 seconds",
+         "    python maestro.py thumbs last up        or `down`: rate the last run. A wrong pick is the most useful signal there is.",
+         "    python maestro.py doctor                any line that starts with `--` is worth an issue (copy the line).",
+         "",
+         "  5 minutes",
+         "    python maestro.py share --preview       read exactly what a bundle holds (paths, e-mails and keys already masked). Writes nothing.",
+         "    python maestro.py private off           then `python maestro.py share --issue`: writes the file, prints a prefilled issue link;",
+         "                                            attach the file to the issue. Only you send it. `private on` afterwards if you like.",
+         "    python maestro.py fit RUN SKILL kind=no question=no assumes=no used=no \"why\"   when a pick was wrong for the task, say so.",
+         "",
+         "  1 hour",
+         "    python maestro.py eval                  held-out accuracy on YOUR library; paste the numbers in an issue (no prompts needed).",
+         "    python maestro.py findable <skill>      fix one skill description so the Maestro finds it; send the diff as a pull request.",
+         "    one real prompt + the skill you ended up using, as a line for evals/probes_walkforward_*.tsv (the honest yardstick).",
+         "",
+         f"  Not helping costs nothing. DO_NOT_TRACK=1 makes `share` write nothing. Where it goes: {REPO}/issues",
+         "  What leaves your machine, and the off switches: SHARING.md, section \"What leaves your machine\"."]
+    return "\n".join(L)
+
+
+def run(argv: list[str], st, state_dir: Path, code: str = "", private: bool | None = None) -> int:
     cmd = argv[0]
+    if cmd == "contribute":
+        print(contribute_text(st.rows(), private))
+        return 0
     if cmd == "share":
+        with_tasks = "--with-tasks" in argv
+        b = make_bundle(st.rows(), with_tasks=with_tasks, code=code)
+        n = counts(b["rows"])
+        if "--preview" in argv:
+            print(json.dumps(b, indent=1, ensure_ascii=False))
+            print(f"PREVIEW: {_counts_line(n)}; sender {b['from']}; task text "
+                  f"{'INCLUDED' if with_tasks else 'left out (sha + words only)'}. Nothing written, nothing sent.")
+            return 0
+        if do_not_track():
+            print("DO_NOT_TRACK is set: `share` writes nothing. Unset it (or use `share --preview`, which only prints).")
+            return 0
         out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else Path.cwd() / f"maestro_ratings_{sender_id()}_{time.strftime('%Y-%m-%d')}.json"
-        b = make_bundle(st.rows(), with_tasks="--with-tasks" in argv, code=code)
         out.write_text(json.dumps(b, indent=1, ensure_ascii=False), encoding="utf-8")
-        n = {}
-        for r in b["rows"]:
-            n[r["kind"]] = n.get(r["kind"], 0) + 1
-        print(f"SHARE: {out}  ({', '.join(f'{v} {k}' for k, v in sorted(n.items()))}; sender {b['from']}; "
-              f"task text {'INCLUDED' if '--with-tasks' in argv else 'left out (sha + words only)'})")
-        print("Read it before sending. Send it as an issue or pull request on the Maestro's GitHub repository (SHARING.md).")
+        print(f"SHARE: {out}  ({_counts_line(n)}; sender {b['from']}; "
+              f"task text {'INCLUDED' if with_tasks else 'left out (sha + words only)'})")
+        if "--issue" in argv:
+            print("ISSUE: open this link, attach the file above, read the form, send:")
+            print("  " + issue_url(b, out, with_tasks))
+        else:
+            print(f"Read it before sending. Send it as an issue or pull request on {REPO} (SHARING.md); "
+                  "`share --issue` prints a prefilled link.")
         return 0
     if cmd == "intake":
         paths = [Path(a) for a in argv[1:] if not a.startswith("--")]
@@ -197,6 +283,25 @@ def _selftest() -> bool:
         r3 = intake([t / "b.json"], t / "c2", me="aaaaaaaaaaaa")
         ok["intake: your own bundle is not folded back in"] = r3["own"] == 1 and r3["added"] == 0
         ok["community_files lists the folded senders"] = len(community_files(t)) == 1
+    url = issue_url(b, Path("maestro_ratings_x.json"), False)
+    ok["issue_url: summary counts only, under the limit, no row text in the link"] = (
+        url.startswith(REPO + "/issues/new?template=") and len(url) < URL_LIMIT and "a%40example" not in url
+        and "<path>" not in urllib.parse.unquote(url) and "1%20SCORE" in url)
+    text = contribute_text(rows + [{"kind": "RATE", "run": "z:r9", "skill": "q", "rating": "useful", "by": "user", "community_from": "z"}], True)
+    ok["contribute: three tiers, own counts only, private status, nothing runs"] = (
+        "30 seconds" in text and "5 minutes" in text and "1 hour" in text and "1 runs scored" in text
+        and "1 ratings by you" in text and "Private mode: ON" in text and "costs nothing" in text)
+    saved = os.environ.get("DO_NOT_TRACK")
+    try:
+        os.environ["DO_NOT_TRACK"] = "1"
+        ok["DO_NOT_TRACK=1 is honoured"] = do_not_track()
+        os.environ["DO_NOT_TRACK"] = "0"
+        ok["DO_NOT_TRACK=0 is not tracking-off"] = not do_not_track()
+    finally:
+        if saved is None:
+            os.environ.pop("DO_NOT_TRACK", None)
+        else:
+            os.environ["DO_NOT_TRACK"] = saved
     bad = [k for k, v in ok.items() if not v]
     print(f"community selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad

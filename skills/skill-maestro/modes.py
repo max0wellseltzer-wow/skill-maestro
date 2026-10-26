@@ -14,11 +14,18 @@ The best-matching mode is chosen automatically and printed with its closeness; `
 ASK FIRST: before the picks run, the sheet lists up to four questions the prompt leaves open (the subject, what done
 looks like, which part first, who reads it, what must not change, plus the mode's own), each with the default the
 Maestro will use if nobody answers. Claude asks them in one AskUserQuestion call, then conducts.
+
+YOUR OWN MODES (v20.0.10, prompt 10 of 2026-10-25: "can people customize it"): `modes.json` in the state folder (or the
+file `MAESTRO_MODES` names) holds a list of modes in the same five-field shape (`ask` optional). They are embedded and
+chosen by meaning exactly like the built-ins; a user mode with a built-in's name replaces it. `maestro.py modes add NAME
+"when" [--picks lo-hi] [--lean "..."] [--direct "..."] [--ask "question=default"]` writes one, `modes remove NAME` drops
+it, `modes template` prints the file shape. A bad entry is skipped and named on `maestro.py modes`; it never breaks a score.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -119,6 +126,109 @@ MODES: list[dict] = [
      "lean": "memory, notes, transcripts, ledger", "direct": "Find the earlier record first; write one fact per note.", "ask": []},
 ]
 
+REQUIRED = ("name", "when", "picks", "lean", "direct")
+NAME_RX = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+TEMPLATE = [
+    {"name": "mark-essays", "when": "mark or grade student essays, give feedback on a piece of writing against a rubric",
+     "picks": [2, 5], "lean": "rubric, feedback, writing, plain words",
+     "direct": "Read the rubric first, then each essay once whole; feedback names the sentence, not the student.",
+     "ask": [["Which rubric?", "the one in the prompt or the course default"]]},
+]
+
+
+def user_path(state: Path | str | None) -> Path:
+    env = os.environ.get("MAESTRO_MODES", "").strip()
+    return Path(env) if env else Path(state or ".") / "modes.json"
+
+
+def validate(m) -> list[str]:
+    """The problems with one mode entry, empty when it is usable."""
+    if not isinstance(m, dict):
+        return ["not an object"]
+    bad = [f"missing {k}" for k in REQUIRED if k not in m]
+    if "name" in m and not (isinstance(m["name"], str) and NAME_RX.match(m["name"])):
+        bad.append("name: lowercase letters, digits and dashes, 1-40 characters")
+    for k in ("when", "lean", "direct"):
+        if k in m and not (isinstance(m[k], str) and 3 <= len(m[k].strip()) <= 400):
+            bad.append(f"{k}: a sentence of 3 to 400 characters")
+    p = m.get("picks")
+    if "picks" in m and not (isinstance(p, list) and len(p) == 2 and all(isinstance(x, int) for x in p) and 1 <= p[0] <= p[1] <= 22):
+        bad.append("picks: [low, high] with 1 <= low <= high <= 22")
+    a = m.get("ask", [])
+    if not (isinstance(a, list) and len(a) <= 4 and all(isinstance(q, (list, tuple)) and len(q) == 2 and all(isinstance(s, str) and s.strip() for s in q) for q in a)):
+        bad.append("ask: up to four [question, default] pairs of text")
+    return bad
+
+
+def load_user(state: Path | str | None) -> tuple[list[dict], list[str]]:
+    """(usable user modes marked user=True, problems as 'file: ...' or 'entry N: ...' lines). A missing file is no problem."""
+    p = user_path(state)
+    if not p.is_file():
+        return [], []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [], [f"{p}: unreadable ({e.__class__.__name__}); no user modes applied"]
+    if isinstance(data, dict):
+        data = data.get("modes", [])
+    if not isinstance(data, list):
+        return [], [f"{p}: expected a list of modes"]
+    good, probs, seen = [], [], set()
+    for i, m in enumerate(data, 1):
+        bad = validate(m)
+        if not bad and m["name"] in seen:
+            bad = ["name used twice in the file"]
+        if bad:
+            probs.append(f"entry {i} ({m.get('name', '?') if isinstance(m, dict) else '?'}): " + "; ".join(bad))
+            continue
+        seen.add(m["name"])
+        good.append({"name": m["name"], "when": m["when"].strip(), "picks": list(m["picks"]), "lean": m["lean"].strip(),
+                     "direct": m["direct"].strip(), "ask": [(q, d) for q, d in m.get("ask", [])], "user": True})
+    return good, probs
+
+
+def all_modes(state: Path | str | None) -> list[dict]:
+    """Built-ins, then the user's; a user mode with a built-in's name takes its place."""
+    user, _ = load_user(state)
+    byname = {m["name"]: m for m in user}
+    out = [byname.pop(m["name"], m) for m in MODES]
+    return out + [byname[n] for n in sorted(byname)]
+
+
+def _write_user(state, modes: list[dict]) -> Path:
+    p = user_path(state)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{k: (v if k != "ask" else [list(q) for q in v]) for k, v in m.items() if k != "user"} for m in modes]
+    p.write_text(json.dumps(rows, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    return p
+
+
+def add(state, name: str, when: str, picks=None, lean: str | None = None, direct: str | None = None, ask=None) -> Path:
+    """Write or replace one user mode. Defaults: picks 2-6, lean = the first words of `when`, direct = a plain line."""
+    m = {"name": name, "when": when, "picks": list(picks) if picks else [2, 6],
+         "lean": lean or " ".join(re.findall(r"[a-z]+", when.lower())[:6]),
+         "direct": direct or "Run the picks in order on the real subject; judge each before trusting it.",
+         "ask": [tuple(q) for q in (ask or [])]}
+    bad = validate({**m, "ask": [list(q) for q in m["ask"]]})
+    if bad:
+        raise ValueError("; ".join(bad))
+    cur, _ = load_user(state)
+    return _write_user(state, [x for x in cur if x["name"] != name] + [m])
+
+
+def remove(state, name: str) -> bool:
+    cur, _ = load_user(state)
+    keep = [x for x in cur if x["name"] != name]
+    if len(keep) == len(cur):
+        return False
+    _write_user(state, keep)
+    return True
+
+
+def template() -> str:
+    return json.dumps(TEMPLATE, indent=1)
+
+
 GENERIC = {
     "subject": ("What exactly should the skills work on: which file, folder, data or page?", "the files this session is working on"),
     "done": ("What does done look like?", "the outcome the prompt names, fully finished"),
@@ -139,7 +249,8 @@ def _texts_key(modes: list[dict]) -> str:
 
 def select(meaning, prompt: str, state: Path, force: str | None = None) -> dict | None:
     """{mode, sim, second, second_sim}: the mode whose `when` means most what the prompt means (or the forced one)."""
-    byname = {m["name"]: m for m in MODES}
+    modes = all_modes(state)                              # v20.0.10: built-ins plus the person's own (modes.json)
+    byname = {m["name"]: m for m in modes}
     if force:
         if force not in byname:
             raise KeyError(f"no mode {force!r}; `maestro.py modes` lists them")
@@ -148,18 +259,18 @@ def select(meaning, prompt: str, state: Path, force: str | None = None) -> dict 
         import numpy as np
     except ImportError:                                   # v20: no numpy means no meaning model here: no mode (the caller's None)
         return None
-    p = Path(state) / f"modes_{_texts_key(MODES)}.npy"
+    p = Path(state) / f"modes_{_texts_key(modes)}.npy"   # the key covers names and `when` texts: a new user mode re-embeds
     if p.is_file():
         mv = np.load(p)
     else:
-        mv = meaning.embed_docs([m["name"].replace("-", " ") + ": " + m["when"] for m in MODES])
+        mv = meaning.embed_docs([m["name"].replace("-", " ") + ": " + m["when"] for m in modes])
         p.parent.mkdir(parents=True, exist_ok=True)
         np.save(p, mv)
     q = meaning.embed_queries([prompt[:2000]])[0]
     sims = mv @ q
     order = list(np.argsort(-sims))
     a, b = order[0], order[1]
-    return {"mode": MODES[a], "sim": round(float(sims[a]), 3), "second": MODES[b] if sims[a] - sims[b] < 0.02 else None,
+    return {"mode": modes[a], "sim": round(float(sims[a]), 3), "second": modes[b] if sims[a] - sims[b] < 0.02 else None,
             "second_sim": round(float(sims[b]), 3), "forced": False}
 
 
@@ -205,9 +316,17 @@ def render(sel: dict, qs: list[dict]) -> list[str]:
     return L
 
 
-def list_modes() -> str:
-    return "\n".join(f"  {m['name']:<18} picks {m['picks'][0]}-{m['picks'][1]:<3} {m['when']}" for m in MODES) + \
-        f"\n{len(MODES)} modes. Chosen by meaning per prompt; `score ... --mode NAME` forces one."
+def list_modes(state: Path | str | None = None) -> str:
+    modes = all_modes(state) if state is not None else list(MODES)
+    _, probs = load_user(state) if state is not None else ([], [])
+    L = [f"{'*' if m.get('user') else ' '} {m['name']:<18} picks {m['picks'][0]}-{m['picks'][1]:<3} {m['when']}" for m in modes]
+    n_user = sum(1 for m in modes if m.get("user"))
+    L.append(f"{len(modes)} modes ({n_user} yours, marked *). Chosen by meaning per prompt; `score ... --mode NAME` forces one.")
+    if state is not None:
+        L.append(f"Yours live in {user_path(state)}: `modes add NAME \"when\" [--picks lo-hi] [--lean ...] [--direct ...] "
+                 f"[--ask \"question=default\"]`, `modes remove NAME`, `modes template`.")
+    L += [f"  SKIPPED {p}" for p in probs]
+    return "\n".join(L)
 
 
 def _selftest() -> bool:
@@ -224,6 +343,35 @@ def _selftest() -> bool:
     ok["ask: a risky verb asks what must not change"] = any(q["kind"] == "limits" for q in q3)
     ok["ask: at most four questions, each with a default"] = all(len(ask_first(p, m)) <= 4 and all(q["default"] for q in ask_first(p, m))
                                                                 for p in ("a. b c d. e f g. h i j.", "x") for m in MODES)
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        st = Path(td)
+        ok["user modes: no file means built-ins only, no problems"] = all_modes(st) == MODES and load_user(st) == ([], [])
+        add(st, "mark-essays", "mark or grade student essays against a rubric", picks=[2, 5], ask=[("Which rubric?", "the course default")])
+        add(st, "fix-bug", "fix a bug my way", direct="Reproduce, then fix.")
+        am = all_modes(st)
+        byname = {m["name"]: m for m in am}
+        ok["user modes: added one appends, same-named one replaces the built-in in place"] = (
+            len(am) == len(MODES) + 1 and am[-1]["name"] == "mark-essays" and am[-1]["user"] and byname["fix-bug"]["direct"] == "Reproduce, then fix."
+            and [m["name"] for m in am[:len(MODES)]] == [m["name"] for m in MODES])
+        ok["user modes: the embedding cache key changes with them"] = _texts_key(am) != _texts_key(MODES)
+        ok["user modes: forced select finds a user mode and ask_first reads its questions"] = (
+            select(None, "x", st, force="mark-essays")["mode"]["user"] and any(q["question"] == "Which rubric?" for q in ask_first("mark these", byname["mark-essays"])))
+        ok["user modes: listing marks them * and names the file"] = "* mark-essays" in list_modes(st) and "modes.json" in list_modes(st)
+        p = user_path(st)
+        rows = json.loads(p.read_text(encoding="utf-8")) + [{"name": "Bad Name", "when": "x"}, {"name": "ok-mode", "when": "fine words here", "picks": [5, 1], "lean": "a b c", "direct": "do it"}]
+        p.write_text(json.dumps(rows), encoding="utf-8")
+        good, probs = load_user(st)
+        ok["user modes: a bad entry is skipped and named, the good ones still load"] = len(good) == 2 and len(probs) == 2 and "picks" in probs[1] and "SKIPPED" in list_modes(st)
+        p.write_text("{not json", encoding="utf-8")
+        ok["user modes: an unreadable file is reported, never raised"] = load_user(st)[0] == [] and "unreadable" in load_user(st)[1][0] and all_modes(st) == MODES
+        p.write_text(template(), encoding="utf-8")
+        ok["user modes: the template loads clean; remove drops by name"] = load_user(st)[1] == [] and remove(st, "mark-essays") and not remove(st, "mark-essays") and all_modes(st) == MODES
+        try:
+            add(st, "no spaces here", "when text")
+            ok["user modes: add refuses a bad name"] = False
+        except ValueError:
+            ok["user modes: add refuses a bad name"] = True
     bad = [k for k, v in ok.items() if not v]
     print(f"modes selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad

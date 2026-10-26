@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20)
+# skill-maestro (Claude Code plugin package, v20.0.10)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard
@@ -31,7 +31,34 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 `doctor` prints numbered fix steps for anything missing. `WELCOME.md` inside the skill is the plain-words version;
 `SHARING.md` says what the optional sibling skills and the extras package add.
 
-## Bundled skills (v20.0.9)
+If a `/plugin update` seems to change nothing, the plugin cache kept the old copy: remove the package's folder under
+`~/.claude/plugins/cache/` and install again. A by-hand copy has no cache.
+
+## Trust: what this package does on your machine
+
+- **Who publishes it:** Max (max0wellseltzer-wow) with Claude, from the owner's workspace; MIT. Every release is
+  one line in `CHANGELOG.md` and one `version` bump in `.claude-plugin/plugin.json`.
+- **It installs no hooks.** `plugin.json` declares skills only. The owner's SessionStart listing check (`listing.py`)
+  and UserPromptSubmit whisper are opt-ins you would add to your own `settings.json` by hand; nothing here does it.
+- **What runs without you typing it:** nothing beyond the score you asked for. A FULL `score` runs each pick's own
+  `--selftest` once from an empty temp folder (its HEALTH gate; cached in `health.json`, skipped on QUICK) and reads
+  the picks' scripts with an AST walk, never executing them. TRY commands run only when you type `maestro.py try ...`.
+- **No network code.** No telemetry, update check or first-run ping; `grep -r urllib` finds one call that builds an
+  issue link for you to open. Ratings leave your machine only as a file you attach yourself (`SHARING.md`, "What
+  leaves your machine"); `DO_NOT_TRACK=1` turns off even the pointer to it.
+- **Token cost:** about 200 tokens for a QUICK verdict, 400-600 for a FULL sheet; it says SKIP when a sheet is not worth it.
+- **Verify it yourself:** `python ~/.claude/skills/skill-maestro/maestro.py doctor` (12 checks) and
+  `python ~/.claude/skills/skill-maestro/maestro.py --selftest` (prints PASS). Both read; neither writes outside
+  `~/.claude/skill-maestro-state/`.
+
+## Helping, only as much as you like
+
+`python ~/.claude/skills/skill-maestro/maestro.py contribute` lists the ways by the time they take: 30 seconds
+(`thumbs last up|down` after a score), 5 minutes (`share --preview`, then `share --issue` and attach the bundle to
+the prefilled issue), an hour (an eval on your library, a description fix, a mode of your own: `modes add`). The
+Maestro asks once, in `doctor`, and never again.
+
+## Bundled skills (v20.0.10)
 
 The core skill runs alone (a built-in word finder stands in when `skill-finder` is absent). `selfcheck`, `eval` and
 `meaning.py eval` need sibling skills, so the package bundles them under `skills/`, each with its own `--selftest`:

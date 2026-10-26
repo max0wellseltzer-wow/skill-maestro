@@ -1,0 +1,45 @@
+name: Ratings bundle
+description: Send back a `maestro.py share` bundle (picks, FIT verdicts, ratings). Thank you.
+title: "ratings bundle"
+labels: ["ratings-bundle"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `python maestro.py share --issue` opened this page with the summary below filled in. The rows themselves are in
+        the file it wrote: attach that file to this issue (drag it into the box). Nothing was sent until you press
+        "Submit new issue". The maintainer runs `maestro.py intake` on it; nothing in a bundle is ever executed.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Counts, your anonymous sender id and the file name, as `share --issue` printed them.
+      placeholder: "Maestro ratings bundle from sender abcd1234 (code ?): 12 SCORE, 9 FIT, 7 RATE; task text left out (sha + words only); file maestro_share_....json"
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: The bundle
+      description: Attach the file here, or paste its contents if it is small.
+      placeholder: Drag the maestro_share_*.json file into this box.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Maestro version
+      description: The first line of `maestro.py doctor`, or the version in `.claude-plugin/plugin.json`.
+      placeholder: "20.0.10"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else (optional)
+      description: A pick that was plainly wrong, a skill that should have been picked, what kind of library this is.
+  - type: checkboxes
+    id: read
+    attributes:
+      label: Before sending
+      options:
+        - label: I read the bundle (`share --preview` prints it) and it holds nothing I mind sharing.
+          required: true

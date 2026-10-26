@@ -63,6 +63,11 @@ new skills are never missed. Design notes and the evidence behind v2: brainstorm
     python maestro.py rerank train --split DATE [--write] | eval | status | off   # v16 O1: the learned judge over the pool (dial M40)
     python maestro.py thumbs RUN|last up|down [SKILL] ["why"]   # v16 O6: the owner's one-keystroke rating (counts as evidence)
     python maestro.py encore [RUN]                              # the next move of a run, phase by phase, until CLOSED
+    python maestro.py modes [add NAME "when" ...|remove NAME|template]   # the modes (v20: your own in <state>/modes.json)
+    python maestro.py personal | private [on|off]               # what your Maestro learned from you; private (default on) stops `share`
+    python maestro.py share [--preview|--issue|--with-tasks]    # your ratings as one masked bundle; --preview prints only; --issue: prefilled link
+    python maestro.py intake FILE|DIR | community               # fold in other people's bundles (as DATA); who sent what
+    python maestro.py contribute                                # every way to help the Maestro, by the time it takes; nothing is sent by itself
     python maestro.py --selftest
 
 v20: chain, rehearse, play, brief, inverse, repertoire, anti, rerank, tune, ablate, why, odds and fairness.py are
@@ -4448,7 +4453,8 @@ def _selftest() -> bool:
 VALUED = ("--root", "--state", "--top", "--probes", "--project", "--budget", "--by", "--subject", "--question",
           "--questions", "--on", "--write", "--concepts", "--concepts2", "--quote", "--note", "--close-older-than",
           "--like", "--null", "--before", "--days", "--split", "--keys", "--grid", "--passes", "--workers", "--timeout",
-          "--only", "--kind", "--paths", "--out", "--limit", "--since", "--min", "--k", "--context", "--epochs", "--l2", "--mode")
+          "--only", "--kind", "--paths", "--out", "--limit", "--since", "--min", "--k", "--context", "--epochs", "--l2", "--mode",
+          "--picks", "--lean", "--direct", "--ask")
 FLAGS = ("--graph", "--pool", "--json", "--plain", "--quick", "--keywords-only", "--full", "--custom-only", "--auto", "--no-ledger", "--misses", "--no-infer",
          "--no-kinds", "--brief", "--plain-words", "--ci", "--armed", "--compare", "--dry", "--hook", "--stdin", "--switches",
          "--power", "--write", "--personas", "--stamp", "--observed-only", "--discriminative")
@@ -5076,8 +5082,32 @@ def main(argv: list[str]) -> int:
                 print(f"COMPARE {a['code']} ({a.get('maestro@3')}) vs {b['code']} ({b.get('maestro@3')}): "
                       + (f"only-first {mc['a_only']}, only-second {mc['b_only']}, McNemar p {mc['p']}: {mc['verdict']}"
                          if mc.get("ok") else mc.get("why", "")))
-    elif cmd == "modes":                                     # 2026-10-24: the modes the Maestro applies to itself
-        print(_load(HERE / "modes.py", "modes").list_modes())
+    elif cmd == "modes":                                     # 2026-10-24: the modes the Maestro applies to itself; v20.0.10: yours too
+        D = _load(HERE / "modes.py", "modes")
+        sub = pos[1] if len(pos) > 1 else "list"
+        if sub == "template":
+            print(D.template())
+            print(f"# save as {D.user_path(st.d)} (or the file MAESTRO_MODES names); `maestro.py modes` shows it loaded", file=sys.stderr)
+        elif sub == "remove" and len(pos) > 2:
+            print(f"MODES: removed {pos[2]}" if D.remove(st.d, pos[2]) else f"MODES: no user mode {pos[2]!r} in {D.user_path(st.d)}")
+        elif sub == "add" and len(pos) > 3:
+            pk = _opt(argv, "--picks")
+            picks = [int(x) for x in re.split(r"[-,]", pk)] if pk else None
+            asks = [tuple(s.strip() for s in a.split("=", 1)) for a in [_opt(argv, "--ask")] if a and "=" in a]
+            try:
+                p = D.add(st.d, pos[2], " ".join(pos[3:]), picks=picks, lean=_opt(argv, "--lean"), direct=_opt(argv, "--direct"), ask=asks)
+                m = {x["name"]: x for x in D.all_modes(st.d)}[pos[2]]
+                print(f"MODES: wrote {pos[2]} to {p}\n  picks {m['picks'][0]}-{m['picks'][1]}  lean: {m['lean']}\n  HOW TO USE THE PICKS: {m['direct']}"
+                      + (f"\n  asks: {m['ask'][0][0]} (default {m['ask'][0][1]})" if m["ask"] else "")
+                      + f"\n  `score \"...\" --mode {pos[2]}` forces it; otherwise it is chosen by meaning like the built-ins.")
+            except ValueError as e:
+                print(f"MODES: not written: {e}")
+                return 2
+        elif sub == "list":
+            print(D.list_modes(st.d))
+        else:
+            print('MODES: usage  modes | modes add NAME "when it applies" [--picks lo-hi] [--lean "..."] [--direct "..."] [--ask "question=default"] | modes remove NAME | modes template')
+            return 2
     elif cmd == "private":                                   # 2026-10-24: share nothing (the default) or allow `share`
         P = _load(HERE / "personal.py", "personal")
         arg = pos[1] if len(pos) > 1 else "status"
@@ -5100,12 +5130,14 @@ def main(argv: list[str]) -> int:
             print(json.dumps({"before": cut_s, "probes": probes.name, **res}))
         else:
             print(P.report(_MEANING["mod"], st.d, rows))
-    elif cmd == "share" and _load(HERE / "personal.py", "personal").is_private(st.d) and "--help" not in flags:
+    elif cmd == "share" and _load(HERE / "personal.py", "personal").is_private(st.d) and "--help" not in flags and "--preview" not in argv:
         print("PRIVATE: nothing written. Your Maestro is in private mode (the default), so `share` makes no file. "
-              "`maestro.py private off` allows it; nothing is ever sent by itself.")
+              "`maestro.py private off` allows it; `share --preview` prints what it would hold; nothing is ever sent by itself.")
         return 0
-    elif cmd in ("share", "intake", "community"):           # 2026-10-24 (the user): ratings from everyone who uses the skill
-        return _load(HERE / "community.py", "maestro_community").run(argv[argv.index(cmd):], st, STATE, hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12])
+    elif cmd in ("share", "intake", "community", "contribute"):   # 2026-10-24 (the user): ratings from everyone who uses the skill
+        return _load(HERE / "community.py", "maestro_community").run(
+            argv[argv.index(cmd):], st, STATE, hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12],
+            private=_load(HERE / "personal.py", "personal").is_private(st.d))
     elif cmd == "index":                                     # v15: the prepared index's state, or a forced rebuild
         return _load(HERE / "index.py", "maestro_index").cli_index(argv, lib, st, root, sys.modules[__name__])
     elif cmd in ("hindsight", "chain", "rehearse", "ablate", "why", "odds", "inverse", "repertoire", "anti", "tune",

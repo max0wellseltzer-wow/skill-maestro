@@ -1,0 +1,44 @@
+name: Wrong pick
+description: The Maestro picked the wrong skill, or missed the right one. Three lines are enough.
+title: "wrong pick: "
+labels: ["wrong-pick"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A wrong pick is the most useful signal there is. Paste the prompt you scored, what the sheet picked, and what
+        you actually used. If you would rather not share the prompt text, describe it in a few words.
+  - type: textarea
+    id: prompt
+    attributes:
+      label: The prompt
+      description: What you typed after `maestro.py score`, or a description of it.
+    validations:
+      required: true
+  - type: textarea
+    id: picked
+    attributes:
+      label: What it picked
+      description: The PICKS lines from the sheet (skill names are enough).
+    validations:
+      required: true
+  - type: textarea
+    id: used
+    attributes:
+      label: What you used instead
+      description: The skill or approach that did the job, or "nothing fit".
+    validations:
+      required: true
+  - type: dropdown
+    id: library
+    attributes:
+      label: Your library
+      options:
+        - Claude Code built-ins only
+        - built-ins plus a few of my own skills
+        - a large library (over 50 skills)
+  - type: input
+    id: version
+    attributes:
+      label: Maestro version
+      placeholder: "20.0.10"

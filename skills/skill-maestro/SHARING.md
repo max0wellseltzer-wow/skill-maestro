@@ -57,13 +57,63 @@ wherever it is. The extras find the Maestro the same way: beside them, at `MAEST
 `MAESTRO_PROJECT.md` in the project folder, `GOAL:` and `LIMIT:` lines, one each per line. Without it the
 Maestro reads CLAUDE.md (opening paragraph as the goal; bullets under a heading that names limits or rules).
 
-## Send your ratings back
+## Make it yours: modes
 
-Your picks and ratings make the Maestro better for everyone. Run `python maestro.py share`, read the
-file it writes (paths, e-mails and keys are masked; task text is left out unless you pass
-`--with-tasks`), and attach it to an issue or pull request on the repository you installed the Maestro
-from. The maintainer runs `maestro.py intake` on it, and the next release's sheets learn from it.
-Bundles you receive are read as data: nothing in one is ever run.
+A mode is how the Maestro conducts one kind of prompt: `when` it applies (matched by meaning), how many picks, a
+`lean` for the pool and a HOW TO USE line, plus up to four questions to ask first. `maestro.py modes` lists the
+built-in ones. Your own go in `~/.claude/skill-maestro-state/modes.json` (or the file `MAESTRO_MODES` names):
+
+```
+python maestro.py modes add mark-essays "mark or grade student essays against a rubric" --picks 2-5 --ask "Which rubric?=the course default"
+python maestro.py modes template      # the file shape, to edit by hand
+python maestro.py modes remove mark-essays
+```
+
+A user mode is chosen by meaning exactly like a built-in and marked `*` in the list; one with a built-in's name replaces
+it. A bad entry is skipped and named in the list, never fatal. Modes are six lines of plain text: if one works for you,
+a pull request adding it to `modes.py` is the cheapest contribution there is.
+
+## Send your ratings back (only if you want to)
+
+Your picks and ratings make the Maestro better for everyone, and `python maestro.py contribute` lists every way to
+help by the time it takes: 30 seconds (`thumbs last up` or `down`), 5 minutes (a bundle), an hour (an eval run on
+your library, a description fix). Not helping costs nothing; the Maestro never asks twice.
+
+The bundle, in three commands:
+
+1. `python maestro.py share --preview` prints exactly what a bundle would hold and writes nothing. Paths, e-mails
+   and key-shaped strings are already masked; task text is left out unless you pass `--with-tasks` (then each task is
+   cut to 500 characters, masked the same way).
+2. `python maestro.py private off`, then `python maestro.py share --issue`: writes the file and prints a prefilled
+   issue link on the Maestro's repository. The link carries only the counts, your anonymous sender id and the file
+   name; the rows travel in the file you attach. `private on` afterwards if you like.
+3. Open the link, attach the file, read the form, send. You can also attach the file to a pull request instead.
+
+The maintainer runs `maestro.py intake` on it, and the next release's sheets learn from it. Bundles you receive are
+read as data: nothing in one is ever run, and no row can claim to be you.
+
+## What leaves your machine
+
+Nothing, until you attach a file to an issue yourself. The Maestro has no network code: no telemetry, no update
+check, no first-run ping, no "anonymous usage statistics". `grep -r urllib maestro.py community.py` finds one use,
+and it builds a link for you to open; it never opens one.
+
+Collected, locally, in `~/.claude/skill-maestro-state/ledger.jsonl` (append-only, yours to read or delete):
+the prompt you scored, the picks and the pool, each TRY command and its exit code, FIT verdicts, ratings, which
+SKILL.md you recorded as read, the skill set's hash. In a bundle (`share`): the same minus task text (sha + content
+words), minus TRY rows entirely, with paths, e-mails and keys masked.
+
+Never collected: file contents, your name or user name (the sender id is a hash), environment variables, anything
+from inside a SKILL.md, anything from a session transcript.
+
+Off switches, each enough on its own:
+
+| switch | effect |
+|---|---|
+| `maestro.py private on` (the default) | `share` writes no file; `share --preview` still prints |
+| `--no-ledger` on any command, or `MAESTRO_NO_LEDGER=1` | nothing is written to the ledger for that run |
+| `DO_NOT_TRACK=1` (the console convention) | `share` writes nothing; `doctor` drops its HELP pointer |
+| delete `~/.claude/skill-maestro-state/` | all history gone; the next score starts fresh |
 
 ## Known limits
 

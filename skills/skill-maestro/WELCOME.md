@@ -7,7 +7,13 @@ if they helped. Remembers.
 ## Use it. 3 steps.
 1. Ask, your words: `python maestro.py score "write a funny poem about my cat"`
 2. Read the picks. Each pick = one line: how to use it on YOUR thing. Copy the `CONDUCTOR PROMPT` line. Paste it to Claude. Done.
-3. Say if it helped: `python maestro.py rate last menu:A --by user topic=4` (0 = no help, 5 = big help). No rating = no learning.
+3. Say if it helped: `python maestro.py thumbs last up` (or `down`). One keystroke. No rating = no learning.
+
+Want to help the Maestro itself? `python maestro.py contribute` lists how, by the time it takes (30 seconds to an hour).
+Nothing is ever sent by itself. Not helping costs nothing.
+
+Want it to think your way? `python maestro.py modes add mark-essays "mark student essays against a rubric"` teaches it a
+new kind of job; `maestro.py modes` lists the built-in ones (yours marked *).
 
 ## Dictionary. Tiny.
 - **pick**: card it chose. **pool**: all cards it looked at. Look at the pool too. Maestro can be wrong.
@@ -16,8 +22,7 @@ if they helped. Remembers.
 - **STABLE**: same pick even if you say it a bit differently. Good.
 - **antibody**: card was WRONG on an ask like this before. Not picked again. (Body remembers a germ.)
 - **opening book**: card was GOOD on an ask like this before. Head start. (Chess player remembers first moves.)
-- **curiosity pick**: card nobody tried yet. Shown so good cards don't hide forever.
-- **menus A-E**: five answers, same pool. A best match. B never tried. C one of each kind. D readers + a critic. E ones you loved.
+- **MODE**: what kind of job your ask is (fix a bug, write a doc, decide...). Sets how many cards and how to use them. You can add your own.
 - **verifier / critic**: one extra card. Job: break the result (numbers) or argue against it (creative). So you don't fool yourself.
 - **BROKEN**: card's own self-test fails on this computer. Fix first.
 - **OFF HERE**: card switched off in settings. Line tells you the exact switch.

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: What leaves your machine
+    url: https://github.com/max0wellseltzer-wow/skill-maestro/blob/main/skills/skill-maestro/SHARING.md
+    about: Nothing, until you attach a file yourself. SHARING.md lists what a bundle holds and the off switches.
+  - name: Install and first run
+    url: https://github.com/max0wellseltzer-wow/skill-maestro/blob/main/README.md
+    about: The plugin install, the by-hand copy, and `maestro.py doctor` for a fresh install.
