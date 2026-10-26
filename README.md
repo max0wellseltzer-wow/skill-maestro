@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20.0.14)
+# skill-maestro (Claude Code plugin package, v20.0.15)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard

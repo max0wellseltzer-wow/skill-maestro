@@ -528,7 +528,7 @@ def render_whisper(prompt: str, names: list[str], secs: float, verdict: str = "Q
     first = names[0]
     return (f"WHISPER ({secs:.2f}s, QUICK, {size}): {listed}\n"
             f"NEXT STEP: if /{first} fits this prompt, call the Skill tool with skill \"{first}\" before working; "
-            f"otherwise go ahead without it (`score` for the judged sheet).")
+            f"otherwise go ahead without it (`maestro.py score --full \"<prompt>\"` for the judged sheet).")
 
 
 # --- play ------------------------------------------------------------------------------------------------------------
