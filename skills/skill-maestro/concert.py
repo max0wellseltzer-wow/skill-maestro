@@ -430,10 +430,17 @@ def thumbs(st, run: str, verdict: str, skill: str | None, why: str) -> str:
     """O6: the owner's one-keystroke rating. `thumbs RUN up|down [SKILL]` writes an owner rating (--by user) with
     topic 5 or 0, for every chosen pick of the run or for one skill. Only owner ratings count as evidence."""
     rows = st.rows()
-    row = (next((r for r in reversed(rows) if r.get("kind") == "SCORE"), None) if run == "last"
+    # v20.0.12: `last` also reaches a QUICK or SKIP triage note (a one-line need writes no SCORE row, and that is
+    # a stranger's usual first run); its picks are rated under the run id quick-<t>.
+    row = (next((r for r in reversed(rows) if r.get("kind") == "SCORE"
+                 or (r.get("kind") == "TRIAGE" and r.get("verdict") in ("QUICK", "SKIP") and r.get("finder_top"))), None)
+           if run == "last"
            else next((r for r in rows if r.get("kind") == "SCORE" and r.get("run") == run), None))
     if row is None:
         return f"RUN_UNKNOWN: no score run {run!r}"
+    quick = row.get("kind") == "TRIAGE"
+    if quick:
+        row = dict(row, run=f"quick-{row.get('t', 0)}", chosen=list(row.get("finder_top", [])))
     targets = [skill] if skill else list(row.get("chosen", []))
     score = 5 if verdict == "up" else 0
     t = int(time.time())
@@ -445,8 +452,10 @@ def thumbs(st, run: str, verdict: str, skill: str | None, why: str) -> str:
             stale.append(n)
         st.append({"kind": "RATE", "run": row["run"], "skill": n, "by": "user", "scores": {"topic": score},
                    "rating": "useful" if score >= 3 else "unused", "why": why or f"thumbs {verdict}", "t": t, "via": "thumbs",
-                   "stale": bool(ss and ss["stale"])})
+                   "stale": bool(ss and ss["stale"]), **({"quick": True} if quick else {})})
     out = f"THUMBS {verdict.upper()} by the owner on run {row['run']}: {', '.join(targets)} (topic {score}); this counts as evidence"
+    if quick:
+        out += " (the picks of a QUICK note; a FULL sheet gets a run id of its own)"
     if stale:
         out += f"\nSTALE: the subject changed after the TRY for {', '.join(stale)}; the rating speaks about an older file"
     return out
@@ -756,6 +765,19 @@ def _selftest() -> bool:
         "1. do this" in render_doctor([{"name": "n", "ok": False, "found": "f", "fix": "do this"}])
         and "READY" not in render_doctor([{"name": "n", "ok": False, "found": "f", "fix": "do this"}])
         and "READY" in render_doctor([{"name": "n", "ok": True, "found": "f", "fix": ""}]))
+    class _St:
+        def __init__(self, r): self._r = list(r)
+        def rows(self): return list(self._r)
+        def append(self, row): self._r.append(row)
+    _st = _St([{"kind": "SCORE", "run": "a", "t": now - 100, "chosen": ["x"]},
+               {"kind": "TRIAGE", "verdict": "QUICK", "finder_top": ["p", "q"], "t": now - 10}])
+    _o = thumbs(_st, "last", "up", None, "")
+    _r = [r for r in _st.rows() if r.get("kind") == "RATE"]
+    ok["thumbs last after a QUICK note rates its picks under quick-<t>, by the owner, marked quick"] = (
+        "quick-" in _o and [r["skill"] for r in _r] == ["p", "q"] and all(r["by"] == "user" and r.get("quick") for r in _r)
+        and all(r["run"] == f"quick-{now - 10}" for r in _r))
+    ok["thumbs by run id still reaches the SCORE row; nothing to rate says RUN_UNKNOWN"] = (
+        "run a:" in thumbs(_st, "a", "down", None, "") and thumbs(_St([]), "last", "up", None, "").startswith("RUN_UNKNOWN"))
     bad = [k for k, v in ok.items() if not v]
     print(f"concert selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad
