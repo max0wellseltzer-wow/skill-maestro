@@ -31,7 +31,7 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 `doctor` prints numbered fix steps for anything missing. `WELCOME.md` inside the skill is the plain-words version;
 `SHARING.md` says what the optional sibling skills and the extras package add.
 
-## Bundled skills (v20.0.7)
+## Bundled skills (v20.0.8)
 
 The core skill runs alone (a built-in word finder stands in when `skill-finder` is absent). `selfcheck`, `eval` and
 `meaning.py eval` need sibling skills, so the package bundles them under `skills/`, each with its own `--selftest`:

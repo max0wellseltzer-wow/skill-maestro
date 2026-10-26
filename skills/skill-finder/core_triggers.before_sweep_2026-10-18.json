@@ -74,7 +74,7 @@
  "guard-respect": [
   "pretooluse hook error",
   "hook blocked",
-  "tv-guard blocked",
+  "the guard hook blocked",
   "blocked destructive command",
   "guard stopped",
   "blocked secret looking write"

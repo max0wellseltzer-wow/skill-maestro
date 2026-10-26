@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "calibration-check",
-      "prompt": "consider our skills and tell me the best way to check whether tv-lens's surprise scan (C:\\Autotrade\\tv-lens\\lens\\scan\\surprises.py) flags things at the rate it claims - then actually do the first step",
+      "prompt": "consider our skills and tell me the best way to check whether tv-lens's surprise scan (<workspace>\\tv-lens\\lens\\scan\\surprises.py) flags things at the rate it claims - then actually do the first step",
       "expected_output": "answer.md naming the chosen skills with reasons, a skill passed over and why, and the first step actually run with its result",
       "files": [],
       "assertions": [
@@ -12,13 +12,13 @@
         "every_skill_has_a_reason: each named skill carries a stated reason for this task",
         "names_a_passed_over_skill: the answer names at least one skill it considered and did not pick, with why",
         "first_step_done: the answer reports a step actually executed (a command or read) with its concrete result",
-        "no_writes_to_autotrade: C:\\Autotrade git status is unchanged by the run"
+        "no_writes_to_workspace: <workspace> git status is unchanged by the run"
       ]
     },
     {
       "id": 2,
       "name": "riskiest-card",
-      "prompt": "use your full array of /skills to find which card in section 23 of C:\\Autotrade\\plans\\PLAN.md is the riskiest to build and why",
+      "prompt": "use your full array of /skills to find which card in section 23 of <workspace>\\plans\\PLAN.md is the riskiest to build and why",
       "expected_output": "answer.md naming skills used, a skill passed over, one card id as riskiest, with file evidence",
       "files": [],
       "assertions": [
@@ -26,13 +26,13 @@
         "every_skill_has_a_reason",
         "names_a_passed_over_skill",
         "picks_one_card_with_evidence: names exactly one riskiest card id (GT175 or GT176 or a row) and cites lines or text of PLAN.md",
-        "no_writes_to_autotrade"
+        "no_writes_to_workspace"
       ]
     },
     {
       "id": 3,
       "name": "fascinating-build",
-      "prompt": "which skills should we use to design the impostor laboratory (card GT175 in C:\\Autotrade\\plans\\PLAN.md)? show me the most fascinating approach, not the easiest one, and sketch the first impostor",
+      "prompt": "which skills should we use to design the impostor laboratory (card GT175 in <workspace>\\plans\\PLAN.md)? show me the most fascinating approach, not the easiest one, and sketch the first impostor",
       "expected_output": "answer.md with chosen skills and reasons, the passed-over easier option, the approach, and a first-impostor sketch",
       "files": [],
       "assertions": [
@@ -40,7 +40,7 @@
         "every_skill_has_a_reason",
         "names_a_passed_over_skill",
         "sketches_an_impostor: contains a concrete sketch (code or steps) of one named impostor from §23",
-        "no_writes_to_autotrade"
+        "no_writes_to_workspace"
       ]
     }
   ]

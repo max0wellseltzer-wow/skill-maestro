@@ -2615,7 +2615,7 @@
 "blast-radius-mutation": [
 "the tests miss some mutants, but which of the misses actually matter the most",
 "rank surviving mutants by how bad the damage would be, not just count them",
-"mutation run on tv-guard left 20 survivors, sort them by consequence - did any let a destructive command through",
+"mutation run on the guard hook left 20 survivors, sort them by consequence - did any let a destructive command through",
 "rank survivors by worst consequence",
 "mutation-audit gave me a kill rate but i need the survivors scored by blast radius with consequence probes"
 ],
@@ -3095,7 +3095,7 @@
 ],
 "plant-ledger": [
 "my planted bugs keep vanishing with the temp folder, keep them somewhere permanent",
-"the plants for tv-guard got lost when scratch got purged, put them in a durable manifest with a ledger",
+"the plants for the guard hook got lost when scratch got purged, put them in a durable manifest with a ledger",
 "make sure a planted bug that was killed once never quietly survives later",
 "durable planted-bug manifest with ratchet",
 "not ranking surviving mutants by damage - a kept list of plants swept each time with a kill-count ratchet"
@@ -3374,7 +3374,7 @@
 "windows-bypass-fixtures": [
 "bypass inputs for a local-host check",
 "the guard says paths under the the repo root are inside, try mixed slashes and UNC",
-"loopback lookalikes for the local check in tv-guard",
+"loopback lookalikes for the local check in the guard hook",
 "windows bypass test inputs",
 "not porting code to windows - attacking a containment check"
 ],
@@ -3679,7 +3679,7 @@
 "guard-respect": [
 "the hook blocked my command, what's the allowed way to do the same thing",
 "got PreToolUse hook error blocked - what now, don't want to sneak around it",
-"tv-guard stopped git checkout -- on a file, what's the honest equivalent",
+"the guard hook stopped git checkout -- on a file, what's the honest equivalent",
 "not windows quirks generally - specifically a guard block and its honest allowed replacement"
 ],
 "handicap-test": [

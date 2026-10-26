@@ -2,7 +2,7 @@
 
 Claude Code lists each skill's description in the system prompt unless skillOverrides says otherwise, and "a skill
 that is absent from skillOverrides is treated as on" (code.claude.com/docs/en/skills.md); there is no wildcard and no
-default for new skills. So every new skill arrived described, and two hand-kept lists (user 548, Autotrade 599)
+default for new skills. So every new skill arrived described, and two hand-kept lists (user 548, project 599)
 drifted apart. The Maestro and the whisper hook read descriptions from each SKILL.md on disk, so Claude's listing only
 needs the names. This module makes the overrides a function of the skill folders:
 
@@ -17,8 +17,8 @@ project and user files). Plugin skills ignore skillOverrides (docs: manage them 
 The core list is listing_core.txt beside this file, one name per line. A SessionStart hook runs `apply --quiet`, so a
 skill made today is name-only by the next session.
 
-    python listing.py check  [--project C:\\Autotrade]
-    python listing.py apply  [--project C:\\Autotrade] [--quiet]
+    python listing.py check  [--project <workspace>]
+    python listing.py apply  [--project <workspace>] [--quiet]
     python listing.py --selftest
 """
 from __future__ import annotations
