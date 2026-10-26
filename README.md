@@ -92,12 +92,12 @@ fourteen expert-persona skills (statistics, causal inference, ML research, opera
 and more; written by K-Dense, MIT, text-only). The Maestro ranks them like any other skill: a persona is a priced
 pick, never the default reader. Install it with `/plugin marketplace add max0wellseltzer-wow/science-personas`.
 
-[maestro-companions](https://github.com/max0wellseltzer-wow/maestro-companions) is the pack of sixty-seven skills
+[maestro-companions](https://github.com/max0wellseltzer-wow/maestro-companions) is the pack of seventy skills
 the Maestro's own ledger shows were read, tried, judged to fit or rated useful in real sessions: the point-of-view
 lenses (devils-advocate, steelman, future-self, worms-eye and nineteen more on pov-core), the finishing and review
 checks (finish-everything, doc-truth, decorative-check, brittle-test-audit) and the skill-library tools
 (demand-scan, exaptation-finder, peacock-tail). Install it with
-`/plugin marketplace add max0wellseltzer-wow/maestro-companions`; its README names the four scripts that also need
+`/plugin marketplace add max0wellseltzer-wow/maestro-companions`; its README names the five scripts that also need
 skill-finder or skill-health from this plugin.
 
 ## Optional: the meaning reading and the extras
