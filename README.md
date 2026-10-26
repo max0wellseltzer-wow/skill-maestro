@@ -82,6 +82,13 @@ Install by plugin and they are all in place. By hand: copy every folder under `s
 The skills' text names "the user" where the owner's copies name him; the example prompts in the probe files are the
 owner's, kept as test data.
 
+## See also: science-personas
+
+The same publisher's [science-personas](https://github.com/max0wellseltzer-wow/science-personas) is a pack of
+fourteen expert-persona skills (statistics, causal inference, ML research, operations research, security research
+and more; written by K-Dense, MIT, text-only). The Maestro ranks them like any other skill: a persona is a priced
+pick, never the default reader. Install it with `/plugin marketplace add max0wellseltzer-wow/science-personas`.
+
 ## Optional: the meaning reading and the extras
 
 - **Meaning.** Picks rank by meaning first when a Python with `fastembed` (BAAI/bge-small-en-v1.5) is installed at
