@@ -923,6 +923,8 @@ def _lib_load(fs, r: Path) -> list:
 
 _MEANING = {}
 MEANING_WAIT = 90.0   # seconds score/eval wait for the resident meaning helper to start; the whisper hook sets 0
+MEANING_ASK = 5.0     # v20.0.7: seconds one ask of a running helper may take; the whisper hook sets ~1 s (a helper busy
+                      # with a score sat on the hook for 5 s at every prompt)
 
 
 def meaning_rank(task: str, depth: int = 120, root: Path | None = None, state: Path | None = None) -> list[tuple[str, float]] | None:
@@ -948,7 +950,8 @@ def meaning_rank(task: str, depth: int = 120, root: Path | None = None, state: P
         root = Path(root) if root else ROOT
         if _MEANING["inproc"]:
             return mod.rank([task], depth, root, Path(state) if state else None)[0]
-        return mod.rank_anywhere(task, depth, root, Path(state) if state else None, wait=MEANING_WAIT)   # the resident helper
+        return mod.rank_anywhere(task, depth, root, Path(state) if state else None, wait=MEANING_WAIT,
+                                 ask_timeout=MEANING_ASK)   # the resident helper
     except Exception:  # noqa: BLE001
         return None
 
@@ -4529,7 +4532,9 @@ def main(argv: list[str]) -> int:
         t0 = time.time()
         fast = C.whisper_fast(prompt, Path(_opt(argv, "--state", STATE)), root)
         if fast is not None:
-            print(C.render_whisper(prompt, fast, time.time() - t0))
+            cwd = Path.cwd()                                    # v20.0.7: triaged, so the note can end in the next step
+            verdict, why = triage(prompt, cwd if (cwd / ".claude").is_dir() else None)
+            print(C.render_whisper(prompt, fast, time.time() - t0, verdict, why))
             return 0
     if not has_finder(root):
         print(f"STANDALONE: {root} has no skill-finder/core-skill-pin; using the Maestro's own mini finder (no core pins)")

@@ -493,14 +493,17 @@ def start_server(state: Path | None = None) -> bool:
         return False
 
 
-def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | None = None, wait: float = 0.0):
+def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | None = None, wait: float = 0.0,
+                  ask_timeout: float = 5.0):
     """From a Python without fastembed: the resident helper's answer; it is started when it is not up. With wait > 0
     the call waits that long for a fresh helper (score, eval), else it returns None at once (the hook) and the word
     readings carry this prompt. v20.0.5: when the wait runs out the answer is None, full stop. The one-shot venv run
     that used to follow re-embedded a cold library inside the score (eight minutes on the owner's PC: the selfcheck
-    tour's two timeouts); a helper that is up but busy answers the next score instead."""
+    tour's two timeouts); a helper that is up but busy answers the next score instead. v20.0.7: `ask_timeout` is how
+    long one ask of a running helper may take (the whisper hook passes about a second: a helper busy with a score
+    accepted its connection and sat on it for the full 5 s, which held every prompt of the owner's session)."""
     ask = {"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}
-    r = ask_server(ask, state=state)
+    r = ask_server(ask, timeout=ask_timeout, state=state)
     if r:
         LAST.update(r.get("last") or {})
         return [tuple(x) for x in r["r"][0]]
@@ -508,7 +511,7 @@ def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | Non
     t0 = time.time()
     while time.time() - t0 < wait:
         time.sleep(0.5)
-        r = ask_server(ask, state=state)
+        r = ask_server(ask, timeout=ask_timeout, state=state)
         if r:
             LAST.update(r.get("last") or {})
             return [tuple(x) for x in r["r"][0]]

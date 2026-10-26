@@ -371,6 +371,7 @@ def whisper(lib, prompt: str, k: int | None = None) -> list[str]:
     if k is not None:
         return [r["name"] for r in lib.search(prompt, k)]
     _maestro().MEANING_WAIT = 0.0                           # the hook never waits for the meaning helper to start
+    _maestro().MEANING_ASK = HOOK_ASK                       # v20.0.7: nor on a helper busy with a score
     scored = _maestro().purpose_rank(lib.search, prompt, root=lib.root, desc=lib.desc)   # 2026-10-24: meaning first, then words; 2026-10-25: desc for the deliverable vote (M51)
     n, _why = whisper_count(prompt, scored)
     return [r["name"] for r in scored[:n]]
@@ -414,6 +415,7 @@ def whisper_fast(prompt: str, state_dir: Path, root: Path, k: int | None = None)
                                "toks": fs._tokens(n + " " + d), "sha": ""})
         F = IX.FastSearch(fs, skills)
         _maestro().MEANING_WAIT = 0.0
+        _maestro().MEANING_ASK = HOOK_ASK                   # v20.0.7: a busy helper must not hold the prompt
         scored = _maestro().purpose_rank(lambda q, d: F.search(skills, q, d), prompt, root=root, state_dir=state_dir,
                                        desc={s["name"]: s["desc"] for s in skills})   # 2026-10-24: meaning first; 2026-10-25: desc for the deliverable and phase votes
         n, _why = whisper_count(prompt, scored)
@@ -448,17 +450,35 @@ def thumbs(st, run: str, verdict: str, skill: str | None, why: str) -> str:
     return out
 
 
+HOOK_ASK = 1.2     # v20.0.7: seconds the hook gives a running meaning helper for one answer (a busy one is skipped)
 HOOK_SNIPPET = {
-    "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
+    "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 20,
               "command": "python \"%USERPROFILE%\\.claude\\skills\\skill-maestro\\maestro.py\" whisper --stdin --no-ledger"}]}]}}
 
 
-def render_whisper(prompt: str, names: list[str], secs: float) -> str:
+def render_whisper(prompt: str, names: list[str], secs: float, verdict: str = "QUICK", why: str = "") -> str:
+    """The hook's note into the session. v20.0.7: it ends in the thing to do, in the words of the tool that does it.
+    Headless test 13 (10 fresh sessions, 2026-10-24): a note that only listed names changed nothing; a fresh session
+    reaches for Bash and never for a skill. FULL (open work, by triage): one firm line, call the Skill tool with
+    skill-maestro, which judges the candidates on this task. QUICK: call the named skill via the Skill tool if it
+    fits, else go ahead. SKIP (a plan card already names the files and tests): build from the card."""
     if not names:
         return f"WHISPER: nothing shares a word with \"{prompt[:60]}\""
     size = f"{len(names)} by task size"
-    return (f"WHISPER ({secs:.2f}s, {size}): " + ", ".join(f"/{n}" for n in names)
-            + "   (by meaning and purpose, then words; `score` for the judged sheet)")
+    listed = ", ".join(f"/{n}" for n in names)
+    reason = (why or "").split(":")[0][:60]
+    if verdict == "FULL":
+        return (f"WHISPER ({secs:.2f}s, FULL: {reason}; {size}): candidates {listed}\n"
+                f"NEXT STEP: before any other tool, call the Skill tool with skill \"skill-maestro\" (one call: it judges "
+                f"these candidates on this task and says which to use, or none). Skip it only when the task is plainly "
+                f"one step, and say so in one line.")
+    if verdict == "SKIP":
+        return (f"WHISPER ({secs:.2f}s, SKIP: {reason}): build from the card; {listed} only if a helper is wanted "
+                f"(call it via the Skill tool).")
+    first = names[0]
+    return (f"WHISPER ({secs:.2f}s, QUICK, {size}): {listed}\n"
+            f"NEXT STEP: if /{first} fits this prompt, call the Skill tool with skill \"{first}\" before working; "
+            f"otherwise go ahead without it (`score` for the judged sheet).")
 
 
 # --- play ------------------------------------------------------------------------------------------------------------
@@ -619,7 +639,8 @@ def cli(argv: list[str], lib, st, root: Path) -> int:
             pass
         t0 = time.time()
         names = whisper(lib, prompt)
-        print(render_whisper(prompt, names, time.time() - t0))
+        verdict, why = M_.triage(prompt, Path.cwd() if (Path.cwd() / ".claude").is_dir() else None)       # v20.0.7: the note ends in the next step
+        print(render_whisper(prompt, names, time.time() - t0, verdict, why))
         return 0
     if sub == "play":
         task = " ".join(pos)
@@ -716,6 +737,12 @@ def _selftest() -> bool:
         _pos(["play", "do", "the", "thing", "--subject", "F.md", "--top", "3"]) == ["do", "the", "thing"]
     ok["render_whisper: empty says nothing shares a word"] = "nothing shares" in render_whisper("x", [], 0.0) \
         and "/alpha" in render_whisper("x", ["alpha"], 0.01) and "1 by task size" in render_whisper("x", ["alpha"], 0.01)
+    ok["render_whisper ends in a Skill call: FULL names skill-maestro, QUICK the pick, SKIP the card"] = (
+        'skill "skill-maestro"' in render_whisper("design it", ["alpha"], 0.01, "FULL", "open-ended work: x")
+        and "FULL: open-ended work;" in render_whisper("design it", ["alpha"], 0.01, "FULL", "open-ended work: x")
+        and 'skill "alpha"' in render_whisper("fix it", ["alpha", "beta"], 0.01, "QUICK", "a one-line need")
+        and "skill-maestro" not in render_whisper("fix it", ["alpha"], 0.01, "QUICK", "")
+        and "build from the card" in render_whisper("GT12", ["alpha"], 0.01, "SKIP", "GT12 already names the files"))
     _sc = [{"name": "a", "score": 4.0}, {"name": "b", "score": 3.0}, {"name": "c", "score": 1.0}]
     ok["whisper_count: a short ask gets 1, a long one gets 2 per sentence capped by candidates within reach"] = (
         whisper_count("fix it", _sc)[0] == 1
