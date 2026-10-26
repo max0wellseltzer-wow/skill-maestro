@@ -20,6 +20,7 @@ Nobody ever has to run a rebuild by hand. `meaning.py build` exists to force one
 
 Works on any skill folder (`--root`), with Anthropic's built-in and plugin skills (builtins.json) always included,
 loaded or not. Without fastembed (another person's PC), `rank` returns None and the Maestro ranks by its other readings.
+A caller without fastembed asks the resident helper (`serve`) and never waits on it beyond its wait (v20.0.5).
 
     meaning.py build [--root DIR]        embed whatever is missing or changed (all of it the first time)
     meaning.py status [--root DIR]       how many skills have a current vector, how many are waiting
@@ -328,13 +329,27 @@ def rank(prompts: list[str], k: int = 40, root: Path = ROOT, state: Path | None 
 
 
 def meaning_rank_subprocess(prompt: str, k: int = 40, timeout: float = 20.0, root: Path = ROOT) -> list[tuple[str, float]] | None:
-    """From a Python without fastembed: run this file in its venv. None when the venv is missing."""
+    """From a Python without fastembed: run this file in its venv, once. None when the venv is missing or the run exceeds
+    `timeout`. v20.0.5: the venv's python.exe is a launcher whose child kept the pipes open after the launcher was killed,
+    so the timeout never returned; the whole tree is killed now. `rank_anywhere` no longer falls back to this."""
     if not VENV_PY.is_file():
         return None
+    p = None
     try:
-        r = subprocess.run([str(VENV_PY), str(Path(__file__)), "search", "--json", "-k", str(k), "--stdin", "--root", str(root)],
-                           input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=timeout)
-        return [tuple(x) for x in json.loads(r.stdout)] if r.returncode == 0 else None
+        p = subprocess.Popen([str(VENV_PY), str(Path(__file__)), "search", "--json", "-k", str(k), "--stdin", "--root", str(root)],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+        out, _ = p.communicate(prompt, timeout=timeout)
+        return [tuple(x) for x in json.loads(out)] if p.returncode == 0 else None
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            p.kill()
+        try:
+            p.communicate(timeout=5)
+        except (subprocess.SubprocessError, OSError):
+            pass
+        return None
     except (subprocess.SubprocessError, ValueError, OSError):
         return None
 
@@ -403,23 +418,36 @@ def serve(state: Path | None = None) -> int:
 
 
 def ask_server(req: dict, timeout: float = 5.0, state: Path | None = None) -> dict | None:
-    """One request to the resident helper; None when it is not running or does not answer in time."""
-    from multiprocessing.connection import Client
-    try:
-        info = json.loads(_serve_info(state).read_text(encoding="utf-8"))
-        conn = Client(("127.0.0.1", int(info["port"])), authkey=bytes.fromhex(info["key"]))
-    except (OSError, ValueError, KeyError, EOFError, Exception):  # noqa: BLE001 (refused, stale file, wrong key)
-        return None
-    try:
-        conn.send(req)
-        if not conn.poll(timeout):
-            return None
-        r = conn.recv()
-        return r if r.get("ok") else None
-    except (OSError, EOFError):
-        return None
-    finally:
-        conn.close()
+    """One request to the resident helper; None when it is not running or does not answer in time. v20.0.5: the whole
+    exchange (connect, key handshake, send, answer) runs in a daemon thread joined for `timeout` seconds: Client() has no
+    timeout on its handshake, and a helper that is up but busy (embedding, or paged out) accepts the connection into its
+    backlog and handshakes only when it gets to it, so a `score` once sat on it for ten minutes. A thread left behind
+    ends when the helper answers or the process exits."""
+    import threading
+    box: list[dict] = []
+
+    def go() -> None:
+        from multiprocessing.connection import Client
+        try:
+            info = json.loads(_serve_info(state).read_text(encoding="utf-8"))
+            conn = Client(("127.0.0.1", int(info["port"])), authkey=bytes.fromhex(info["key"]))
+        except Exception:  # noqa: BLE001 (refused, stale file, wrong key)
+            return
+        try:
+            conn.send(req)
+            if conn.poll(timeout):
+                r = conn.recv()
+                if r.get("ok"):
+                    box.append(r)
+        except (OSError, EOFError):
+            pass
+        finally:
+            conn.close()
+
+    th = threading.Thread(target=go, daemon=True)
+    th.start()
+    th.join(timeout + 1.0)
+    return box[0] if box else None
 
 
 def _alive(pid: int) -> bool:
@@ -468,21 +496,23 @@ def start_server(state: Path | None = None) -> bool:
 def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | None = None, wait: float = 0.0):
     """From a Python without fastembed: the resident helper's answer; it is started when it is not up. With wait > 0
     the call waits that long for a fresh helper (score, eval), else it returns None at once (the hook) and the word
-    readings carry this prompt. Falls back to the one-shot venv run only when no helper can start."""
-    r = ask_server({"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}, state=state)
+    readings carry this prompt. v20.0.5: when the wait runs out the answer is None, full stop. The one-shot venv run
+    that used to follow re-embedded a cold library inside the score (eight minutes on the owner's PC: the selfcheck
+    tour's two timeouts); a helper that is up but busy answers the next score instead."""
+    ask = {"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}
+    r = ask_server(ask, state=state)
     if r:
         LAST.update(r.get("last") or {})
         return [tuple(x) for x in r["r"][0]]
-    started = start_server(state)
-    if wait > 0:
-        t0 = time.time()
-        while time.time() - t0 < wait:
-            time.sleep(0.5)
-            r = ask_server({"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}, state=state)
-            if r:
-                return [tuple(x) for x in r["r"][0]]
-        return meaning_rank_subprocess(prompt, k, root=root)
-    return None if (started or VENV_PY.is_file()) else None
+    start_server(state)
+    t0 = time.time()
+    while time.time() - t0 < wait:
+        time.sleep(0.5)
+        r = ask_server(ask, state=state)
+        if r:
+            LAST.update(r.get("last") or {})
+            return [tuple(x) for x in r["r"][0]]
+    return None
 
 
 def fuse(lists: list[list[str]], weights: list[float], k: int = 60) -> list[str]:
@@ -503,7 +533,11 @@ def _word_ranker(root: Path = ROOT):
     p = IX.index_path(root, STATE)
     d = json.loads(p.read_text(encoding="utf-8"))
     skills = [IX._as_skill(e) for e in d["skills"].values()]
-    fsp = next(root / h / "find_skill.py" for h in ("skill-finder", "core-skill-pin") if (root / h / "find_skill.py").is_file())
+    homes = [root / h for h in ("skill-finder", "core-skill-pin")] + [HERE.parent / "skill-finder"]   # pack layout last
+    fsp = next((h / "find_skill.py" for h in homes if (h / "find_skill.py").is_file()), None)
+    if fsp is None:   # v20.0.5: a plain message instead of StopIteration on a PC without skill-finder
+        raise FileNotFoundError("find_skill.py not found (skill-finder beside the library or beside skill-maestro); "
+                                "install the skill-maestro pack, which bundles it")
     fs_spec = importlib.util.spec_from_file_location("find_skill", fsp)
     fs = importlib.util.module_from_spec(fs_spec)
     fs_spec.loader.exec_module(fs)
@@ -620,6 +654,33 @@ def _selftest() -> bool:
             r7 = sync(lib, 0, st)                                       # changed, and nothing may be embedded now
             ok["sync: a changed skill keeps its old vector until its new one is embedded (stale beats absent)"] = (
                 r7["pending"] == 1 and r7["embedded"] == 0 and "gamma" in r7["store"]["names"])
+    # v20.0.5: a helper that is up but busy accepts the connection and handshakes only when it gets to it. A listener
+    # that never accepts plays that helper; the helper record names this process so no real helper is started.
+    import socket
+    global meaning_rank_subprocess
+    with tempfile.TemporaryDirectory() as td:
+        st = Path(td)
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        _serve_info(st).write_text(json.dumps({"port": srv.getsockname()[1], "key": "00" * 24, "pid": os.getpid(), "t": time.time()}),
+                                   encoding="utf-8")
+        (st / "meaning_server.lock").write_text(str(time.time()), encoding="utf-8")
+        t0 = time.time()
+        a = ask_server({"op": "ping"}, timeout=1.0, state=st)
+        t_ask = time.time() - t0
+        ok["ask_server: a helper that never answers costs the timeout, not forever"] = a is None and t_ask < 4.0
+        saved_sub, calls = meaning_rank_subprocess, []
+        meaning_rank_subprocess = lambda *a, **kw: calls.append(1)   # noqa: E731
+        try:
+            t0 = time.time()
+            r = rank_anywhere("where will it rain", 3, ROOT, st, wait=1.5)
+            t_rank = time.time() - t0
+        finally:
+            meaning_rank_subprocess = saved_sub
+        ok["rank_anywhere: when the wait runs out the reading is None at once, and no one-shot run follows"] = (
+            r is None and t_rank < 12.0 and not calls)
+        srv.close()
     bad = [k for k, v in ok.items() if not v]
     print(f"meaning selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad

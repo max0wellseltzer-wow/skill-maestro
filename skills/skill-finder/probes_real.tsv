@@ -1,0 +1,21 @@
+# verbatim the user prompts (the owner's prompt log) and verbatim tool errors (layer 9), TAB, acceptable skills
+status	receipt-report,tree-status,autotrade-start
+status?	receipt-report,tree-status,autotrade-start
+is it done yet?	receipt-report
+are you done with your tasks? if not do not stop the work	receipt-report,chain-the-queue,finish-everything
+well done, how close to finished are you?	receipt-report
+keep going, land everything when forge passes. What is the hold up?	long-job,chain-the-queue,land-a-change
+report the result to #41 when it's done	mailbox-post
+as the head organizer I need you to execute many more commands to test out our code on windows	command-tour,windows-gotchas,windows-port-audit
+PreToolUse:Bash hook error: [python <repo>/guard/hooks/pre.py]: blocked: destructive command (recursive or forced delete)	guard-respect
+yes land max-33's D68 and push	land-a-change
+sync it to the repo when done	land-a-change
+keep going, land everything when check_all passes	land-a-change,chain-the-queue
+take the per-stock reversion test next, pre-registered	test-a-condition,pre-register,forward-score
+take a birds eye view of this project and analyse the status. Give key info to your siblings	tree-status,receipt-report,autotrade-start,mailbox-post
+fix the older skills and why ever they get warnings	skill-health,library-vitals
+we need lots of data for reviewing price action. Get literally all you can	measure-first,data-hygiene,data-intake
+land the prediction-market files once the pen's free	land-a-change,writer-pen
+what /skills do we have that are not tool backed?	skill-health,library-vitals,skills-index
+Blocked: foreground sleep. Use Monitor with an until-loop to wait on a condition	long-job
+what steps are still blocked by me?	receipt-report,batch-max-questions

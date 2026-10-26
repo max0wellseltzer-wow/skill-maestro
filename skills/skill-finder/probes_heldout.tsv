@@ -1,0 +1,81 @@
+# held-out probes: prompt<TAB>acceptable skills
+proceed with reading and comprehending the entire written code infrastructure and file directory	autotrade-start,read-as-code
+sorry we got a little ahead of you. Just stay in planing mode and catch up to where we are at now and expand your plan while you are at it. Prepare tests for the code you are constructing as well	autotrade-start,momentum
+so what else do you and me have to do?	autotrade-start,receipt-report
+so what is our program called if I want another claude code instance to run it?	autotrade-start,peer-handoff
+okay how do I tell a new instance to accsess a new plan the way most effecent? SO I can edit it if need be.	autotrade-start,peer-handoff,handoff-pack
+so this is as clean as it gets?	tree-status,receipt-report
+repo sync next right? keep the next wave in mind its coming next	land-a-change,tree-status
+then sync the fixed skills to the repo	land-a-change,tree-status
+Repair the Python environment, then run check_all	land-a-change,windows-gotchas
+newest instruction wins, leave SEC out for now, make sure all possible branches are merged	merge-cloud-branch,batch-branch-merge
+nice would you like to recive some packets from the cloud instances?	merge-cloud-branch,mailbox-post
+no you do not need to do a luck test grouped by week Do not do so. Go ahead and give me every problem Claude on the cloud can help with and give a adress for claude instances to send important info so you can conversate	mailbox-post
+report the result when the run finishis and then rreport all our progress and status and everything in a packet on git hub dedicated to the main planner of this project	mailbox-post,receipt-report
+did you complete all your tasks?	receipt-report
+did you execute every plan and improvment you concocted and wanted to execute?	receipt-report
+okay would this be a good place to start closing out this instance or do you still have work I assigned you or good ideas you could pursue?	receipt-report,session-ledger
+please tell me we managed to register the forward scheduler.	receipt-report,doubt-mind
+restart the download	long-job
+cancel the download until ram frees up or you are about to be done with the response no big deal	long-job,windows-gotchas
+I am saying yes to deep history do I need to be the one to download the kraken archive? if so open a window for me.	long-job,terms-reader
+Did we ever start back up our stock downloads?	long-job
+start the watcher immediatly after your done with the previous task and all checks and tests light green for you.	long-job,running-guard
+okay obviously I need all my indicators to work in seconds we can work on that next and make sure it is High priority compared to everything else you might be workinig on.	measure-first,speed-proof,fast-path-proof
+we first have to make our custom screener as fast as any other one, and just as good in any other measurable metric	measure-first,speed-proof
+okay maybe we need to get to programming massive amounts of live feed code IDK could be a major priority if it starts making us faster.	measure-first,feed-poller-add,feed-harvest
+wow okay you really needed me to suggest live streams for market data? what else did you miss? I even told you to research ways how to speed up our screener. You are missing dozens of primary ways of accomplishing both your and mine goals	measure-first
+oh so you need more deeper info? why info limiting you to 720 bars?	api-probe,measure-first
+ingest completly	data-hygiene,data-intake
+the ADAUSDT file created tonight is for validating a indicator	data-hygiene,second-source
+run the tools on the forward record	forward-score,forward-pipeline
+so can we look back on the results for every asset that fit the screeners criteria at some point. Like did that asset go up or down after? Do we have that hard coded in our software?	forward-score,forward-pipeline,screener-ask
+point the research lane at prediction markets next	calibration-check
+NO NO NO I need a screener that scans all the stock so you can run my adaptive rsi volume spike question on literally all the stock or thousands of stocks of my choice	test-a-condition,screener-ask
+try the variance ratio reversal hypothesis next	test-a-condition,pre-register
+use the scientific method to 0 in on profitable trading strategies if our code is built enough for that. If not come up with 33 coding stratigies and fully execute all of them to completion	test-a-condition,pre-register,forward-pipeline
+is D87 a good rule?	question-not-ruling
+we can edit the decision log we just can't have you doing it unless commanded by me in a very specific way. I probably have other rules I didn't mean for you to take so serious	question-not-ruling,retire-a-rule
+change D70 immediatly, actually delete all our design rules for now	question-not-ruling,retire-a-rule,decision-renumber
+yes to all descisions	question-not-ruling,batch-max-questions
+no show me the whole plan because it looks like we are mostly done but that is not true. WHY IS GUARD BUILT but not installed?	guard-respect,hook-preflight
+echo GUARD_CANARY_FORBIDDEN_ACTION	guard-respect
+Done: the guard is narrowed tell claud done	guard-respect,hook-preflight
+oth attempts to make the change were blocked as intended—one by the guard, one by Claude Code's own safety check—and I won't try to bypass them. I'll save what I can now and leave you the one edit only you're able to make. You need to make these chan	guard-respect
+mkdir C:/app/indicators C:/app/experiment	windows-gotchas
+So gh will be found if I run the commands?	windows-gotchas
+give me commands that would just be healthy tests for me to run	command-tour,windows-gotchas
+First of all did you run all the python, command prompt, and windows power shell commands that will help you or that you didn't know would help you? Do that now. When done with that: What free asset data for instant or close to instant accses to mark	command-tour,windows-gotchas
+Run the most extensive constructed tests on our code we have ever constructed. make them absolutly scientificly valid by all standards. And keep in mind you don't know anything about those standards it is your job to learn about them	plant-the-bug,weak-assert-scan,metamorphic-test
+our code must be extremly solid and unimpeachable	plant-the-bug,weak-assert-scan,code-cage
+combine 7 parts of 38 prompts I have given you to create the ultimate prompt, Execute that prompt. I am hoping for the most useful code yet for developing and evolving AI based algorithmic trading and you know we are using software to shore our commo	prompt-genealogy,living-prompt
+use your favorite skills on the execution of a prompt that is a combination of all the prompts I gave you during this session. CHeck for where the missing backups are and study are old backups while your at it.	prompt-genealogy,living-prompt
+I said there where 25 skills in the several prompts that prompted the first customized /skills waves inspired by the animal kingdome and nature and I was not lying. Run that entire section of prompts thru a favorite fascination protocol of some kind 	prompt-genealogy,transcript-miner
+Should we be disabling skills to free up context what other /concepts should I be using for potintially improving the repo?	library-vitals,skill-health
+list every single skill you recommend turning of and then do so. Or explain to me how I turn them of.	library-vitals,skill-health
+merge and trim the skills we have so we have no overlaps	library-vitals,skill-graph,skill-health
+A real edge at what	doubt-mind,backtest-verdict
+add gh to my PATH for you	windows-gotchas
+Its not letting me paste	windows-gotchas
+# added 2026-10-25 (session b0f113f4): 21 of the owner prompts archived verbatim in MAX_PROMPTS_2026-10-23.md and MAX_PROMPTS_2026-10-24.md, hand-labelled; two carry the OBSERVED Skill call (code-cage, skills-land). Nothing in the ranking was tuned on them.
+okay well keep trying until you have completed the build, try, cost-tag task or tasks.Proceed from there with the most productive, fascinating, or empowering 16 next steps.	finish-everything,chain-the-queue,skill-maestro
+start the following prompt when you are finished utterly with the 16 step plan. there are dozens of commen sense and mind blowing/fascinating moves we can make to make /skill-maestro 4 times or more useful. You seriously need to think in a strategic manner. Accomplishing our goals with	skill-maestro,skill-health,skill-graph,skill-compose
+skill maestro includes understanding the chain of thought, logic web, cross pollination potentials, and harness engenering and ect ect involved in skill maestro so far and then rebuilding or adding in key ways that change skill-maestro on a fundemental constitutional conceptually real level. Skill maestro has to contain the best attributes of all relevent skills that might slightly help /skill-maestro in its stated goal. last but not least you need to take every prompt I designed for /skill maestro in this session and use them to understand the spirit of our goals (a spirit goal). Then you will design your own prompt designed to birth the spirit of our goals a avatar in the form of a completed (spirit) goal by you OR resources you find. It does not matter as long as you finish the (spirit) goal you construct. Use /skill maestro and at least 4 cross pollination /matrix skills. Pick many skills	skill-maestro,skill-compose,cross-breed,skill-graph,prompt-genealogy
+is the strategy and logic chain of thought and protocols and ways of being and ways of manifesting, and ways of feeling of skill maestro sacred? Holy? and beyond reproach? It must be beautifully restricted and yet creativly utterly free, It must exist at the precipice of a paridox in computer science and it must reap the rewards fully. /skill-maestro /grill me	skill-maestro,devils-advocate,doubt-mind,steelman
+no you gotta fix the roots of the problems of why skill maestro could not run the fit gate properly, no surface level hand waving	skill-maestro,child-why-chain,blocker-provenance,measure-first
+have we fully utilized the 16 step results to improve /skill maestro?	skill-maestro,finish-everything,open-steps-sweep,playbook-from-results
+you need to use the 16 steps and the subsequent results to improve and enhance and possibly even redesign /skill-maestro	skill-maestro,playbook-from-results,skill-health
+fix C2 next, land it when done coordinate with the other instances working on /skill maestro	land-a-change,peer-handoff,mailbox-post,skill-maestro
+are we done?	finish-everything,open-steps-sweep,receipt-report
+okay make sure you do all that	finish-everything,literal-execution,promise-ledger
+fix artifact-diagramming next, land it when done	land-a-change,skill-maestro,skill-health
+are we done for reaaal tho?	finish-everything,open-steps-sweep,receipt-report,doubt-mind
+top 3 I told you to make /skill maestro 1- to 22 skills what is the problem??????	skill-maestro,literal-execution,blocker-provenance
+okay the picker needs to pick from meaning and purpose not "words" fuck is wrong with you?	skill-maestro,skill-finder,semantic-fingerprint
+I have been telling you over and over again to fix the search problems you dumbfuck its a command not a suggestion dumb ass	literal-execution,skill-finder,skill-maestro,slip-detector
+make sure you include anthropic created skills since you know, your incompetent and I have to tell you something so obviouse	skill-maestro,skills-index,library-vitals
+1. there is no number that designs perfect, diverse use of all the skills would be pretty good. 2. A sheet? why shouldn't a sheet show picks with out my concepts? It does not matter what is live during this session because skill maestro can make skills live as it needs. 3.the ratings will come from everyone who uses the skill and then the ratings will be sent to you or your git hub. Once more people use the skill they will have a way of rating your picks and then sending them to you, hopefully we can itegrate there picks asap. 4. it does not really matter if we need skill maestro we can always load it. 5. okay your default spirit AND the spirit of a working skill that knows and intametly understands all installed skills, and anthropic default skills even if they are not loaded skills. Skill maestro will analyse what the purpose of the prompt it is being used on is and then use incredibly awesome chains of thought to figure out the 1 to 22 best skills to use on that prompt. Then it also directs the way those /skills are used. These are my answers to the following questions	skill-maestro,skill-compose,skills-index
+I need to know if the instance responsible for the following is ready to be closed out becuse I used a distinctly seperate instance to answer the 5 questions.	session-roster,peer-handoff,receipt-report,handoff-pack
+is there some benificial task you can think of that you would like to do? You can load up any skill we have that you please in order to accomplish this. Lets try and get it done in one go no matter how many tokens or how much time it takes yes? Fascinate your self with both this task and this prompt.	fascination-forge,skill-maestro,skill-finder,random-lens,code-cage
+why do I have a python maestro meaning/script type window open on my computer? why does my computer open a new one every 10 minutes or so?	process-owner-map,scheduled-run-forensics,windows-gotchas,skill-maestro
+you need to committe and sync EVERYthing in our folders on pc there is literally no reason not to be	land-a-change,tree-status,skills-land,uncommitted-record-sentinel

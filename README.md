@@ -31,6 +31,26 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 `doctor` prints numbered fix steps for anything missing. `WELCOME.md` inside the skill is the plain-words version;
 `SHARING.md` says what the optional sibling skills and the extras package add.
 
+## Bundled skills (v20.0.5)
+
+The core skill runs alone (a built-in word finder stands in when `skill-finder` is absent). `selfcheck`, `eval` and
+`meaning.py eval` need sibling skills, so the package bundles them under `skills/`, each with its own `--selftest`:
+
+| skill | what the Maestro uses it for |
+|---|---|
+| `skill-finder` | the word-reading finder (`find_skill.py`), the pinned core (`core_pin.py`) and the held-out probes `eval` scores against |
+| `skills-index` | the family-grouped catalog `build_index.py` regenerates for your library |
+| `skill-graph` | which skills lean on which (the `selfcheck` graph step) |
+| `skill-compose` | the typed pipeline runner behind `selfcheck` |
+| `skill-health` | every bundled tool's selftest from a neutral folder (the `selfcheck` health step) |
+| `route-audit`, `collision-registry` | bonus: router self-test and the near-duplicate registry `skill-finder`'s pin uses |
+| `kingdom-sweep` | bonus: a concept swept across kingdoms for ideas |
+| `skill-maestro-extras` | the research commands listed below |
+
+Install by plugin and they are all in place. By hand: copy every folder under `skills/` into `~/.claude/skills/`.
+The skills' text names "the user" where the owner's copies name him; the example prompts in the probe files are the
+owner's, kept as test data.
+
 ## Optional: the meaning reading and the extras
 
 - **Meaning.** Picks rank by meaning first when a Python with `fastembed` (BAAI/bge-small-en-v1.5) is installed at

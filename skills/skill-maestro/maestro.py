@@ -1056,7 +1056,7 @@ class Library:
     def snapshot(self) -> dict[str, str]:
         if self._snap is None:
             shas = {s["name"]: s["sha"] for s in self.skills if s.get("sha")}      # v15: from the prepared index
-            self._snap = {n: shas.get(n) or hashlib.sha256(p.read_bytes()).hexdigest()[:16] for n, p in sorted(self.md.items())}
+            self._snap = {n: shas.get(n) or skill_sha(p) for n, p in sorted(self.md.items())}
         return self._snap
 
     everything = True       # also plugin and account-synced skills (v11); False = the custom libraries only
@@ -2140,7 +2140,7 @@ def persona_card(name: str, desc: str, md: Path | None) -> dict | None:
             "not_for": "computing anything (it is prose); a task that IS one of its failure modes - "
                        f"{'; '.join(split(fails)[:4])} - needs a checker skill, not a reasoner",
             "cost": f"~{tokens_of(body)} tokens to read" if body else "a full profile read",
-            "tool": False, "skill_sha": hashlib.sha256(md.read_bytes()).hexdigest()[:16] if md and md.is_file() else None}
+            "tool": False, "skill_sha": skill_sha(md) if md and md.is_file() else None}
 
 
 def stamp_cards(lib: "Library", path: Path | None = None) -> dict:
@@ -2156,7 +2156,7 @@ def stamp_cards(lib: "Library", path: Path | None = None) -> dict:
         if md is None or not md.is_file():
             missing += 1
             continue
-        sha = hashlib.sha256(md.read_bytes()).hexdigest()[:16]
+        sha = skill_sha(md)
         if c.get("skill_sha") and c["skill_sha"] != sha:
             stale += 1
         c["skill_sha"] = sha
@@ -2174,7 +2174,7 @@ def stale_cards(lib: "Library", cards: dict[str, dict]) -> dict:
             continue
         if not c.get("skill_sha"):
             unstamped += 1
-        elif c["skill_sha"] != hashlib.sha256(md.read_bytes()).hexdigest()[:16]:
+        elif c["skill_sha"] != skill_sha(md):
             stale.append(n)
         else:
             ok += 1
@@ -2221,6 +2221,12 @@ def parse_fit_judgments(words: list[str]) -> tuple[dict[str, bool] | None, list[
 def fit_verdict(j: dict[str, bool]) -> str:
     """works needs kind, question and assumes all yes; `used` is recorded, never decides (a right pick can go unused)."""
     return "works" if all(j.get(q) for q in ("kind", "question", "assumes")) else "misfit"
+
+
+def skill_sha(md: Path) -> str:
+    """v20.0.5: the sha of a SKILL.md with CRLF read as LF, so a CRLF checkout and an LF checkout of the same library agree
+    (86 cards read STALE across the owner's two copies for nothing but a CR)."""
+    return hashlib.sha256(md.read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
 
 
 def file_sha(p: str | Path | None) -> str | None:
@@ -3484,7 +3490,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
         c["family"] = lib.family(c["name"])
         md = lib.skill_md(c["name"])
         c["skill_md"] = str(md)
-        c["sha"] = hashlib.sha256(md.read_bytes()).hexdigest()[:16] if md.is_file() else None
+        c["sha"] = skill_sha(md) if md.is_file() else None
         c["lines"] = len(md.read_text(encoding="utf-8", errors="replace").splitlines()) if md.is_file() else 0
         c["first_cmd"] = first_command(md)
         c["grade"] = "S1" if c["name"] in book else ("S2" if (c["name"], c["sha"]) in reads else "S3")
@@ -3786,7 +3792,7 @@ def read_receipt(lib: Library, st: State, run: str, names: list[str]) -> list[st
         if not md.is_file():
             out.append(f"NO_SKILL {n}")
             continue
-        sha = hashlib.sha256(md.read_bytes()).hexdigest()[:16]
+        sha = skill_sha(md)
         st.append({"kind": "READ", "run": run, "skill": n, "sha": sha, "t": int(time.time())})
         out.append(f"READ {n} sha {sha}")
     return out

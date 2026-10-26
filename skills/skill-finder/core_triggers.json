@@ -1,0 +1,195 @@
+{
+ "_note": "CORE ritual skills -> trigger phrases. Written 2026-10-16 from each skill's description plus the real phrasings in mining layers 5 and 9, BEFORE looking at the body pitches route-audit uses. A phrase fires when all its content words are in the query; a one-word phrase fires only on a short query (8 content words or fewer). v2 (same day): phrases the 'check' command flagged as COLLAPSED (a multi-word phrase that is one generic word after stopwords, e.g. 'are you done' -> 'done') were dropped or rewritten as deliberate one-word triggers; v1 is kept in the report for comparison. v3: dropped autotrade-start 'start session'/'start of session' (tokens start+session pulled three library skills' pitches, restriction-matrix out of its top-5).",
+ "api-probe": [
+  "probe the api",
+  "new endpoint",
+  "api response fixture",
+  "write a client for",
+  "batch size page size",
+  "rate limit of the api"
+ ],
+ "autotrade-start": [
+  "resume autotrade",
+  "session start ritual",
+  "fresh instance session"
+ ],
+ "calibration-check": [
+  "are the odds efficient",
+  "favorite longshot",
+  "brier score",
+  "forecasts calibrated",
+  "prediction market prices bias",
+  "reliability curve"
+ ],
+ "command-tour": [
+  "test some fun commands",
+  "try dozens of commands",
+  "see what breaks",
+  "tour the cli",
+  "every option edge case typo"
+ ],
+ "data-hygiene": [
+  "trust a new data source",
+  "new price source",
+  "result looks too good",
+  "writing a loader",
+  "downloading bars"
+ ],
+ "doubt-mind": [
+  "looks too clean",
+  "too good to be true",
+  "suspect my own result",
+  "two checks disagree",
+  "before reporting a number",
+  "it is green claim"
+ ],
+ "fast-path-proof": [
+  "cache gives the same answer",
+  "prove the fast path",
+  "memoize safely",
+  "skip if unchanged",
+  "cache incomplete or stale",
+  "pre filter shortcut"
+ ],
+ "feed-poller-add": [
+  "add a new feed",
+  "new data feed poller",
+  "watch a public feed",
+  "pollers.py"
+ ],
+ "forward-pipeline": [
+  "forward test signals end to end",
+  "frozen spec hash",
+  "forward test several signals"
+ ],
+ "forward-score": [
+  "forward test",
+  "out of sample",
+  "track record",
+  "log predictions forward",
+  "promote a signal",
+  "is the edge real",
+  "is the signal real"
+ ],
+ "guard-respect": [
+  "pretooluse hook error",
+  "hook blocked",
+  "tv-guard blocked",
+  "blocked destructive command",
+  "guard stopped",
+  "blocked secret looking write"
+ ],
+ "land-a-change": [
+  "ready to commit",
+  "land the change",
+  "check_all passed",
+  "push rejected",
+  "root pointer bump",
+  "commit and push"
+ ],
+ "library-vitals": [
+  "library health",
+  "skill library doing",
+  "library dashboard"
+ ],
+ "long-job": [
+  "long running job",
+  "foreground sleep blocked",
+  "job is quiet",
+  "wait for a background job",
+  "stuck"
+ ],
+ "mailbox-post": [
+  "post to the mailbox",
+  "tell the cloud claudes",
+  "mailbox note",
+  "mailbox"
+ ],
+ "measure-first": [
+  "where the time goes",
+  "profile before optimising",
+  "bulk download route",
+  "job seems slow",
+  "faster"
+ ],
+ "merge-cloud-branch": [
+  "cloud branch",
+  "origin/claude",
+  "land cloud work",
+  "branch from a cloud session"
+ ],
+ "plant-the-bug": [
+  "can the test fail",
+  "plant a bug",
+  "test passed first time",
+  "prove the test catches",
+  "surviving mutant"
+ ],
+ "prompt-genealogy": [
+  "where did this idea come from",
+  "when did max first ask",
+  "trace a theme through prompts",
+  "prompt timeline"
+ ],
+ "question-not-ruling": [
+  "record a decision",
+  "max decided",
+  "decisions.md row",
+  "question or a rule",
+  "write a memory from what max said"
+ ],
+ "receipt-report": [
+  "status",
+  "final report",
+  "did you complete all tasks",
+  "is it done yet"
+ ],
+ "second-source": [
+  "cross check a data source",
+  "independent source",
+  "price looks odd",
+  "second feed",
+  "price jump bad print"
+ ],
+ "test-a-condition": [
+  "does this indicator work",
+  "test this condition",
+  "stock scan",
+  "indicator condition across stocks"
+ ],
+ "tree-status": [
+  "is everything pushed",
+  "status of every submodule",
+  "ahead behind github",
+  "submodule pointer",
+  "tree status"
+ ],
+ "weak-assert-scan": [
+  "assert that can never fail",
+  "weak assertion",
+  "assert a tuple",
+  "test passes for the wrong reason"
+ ],
+ "windows-gotchas": [
+  "lost backslashes",
+  "command hangs",
+  "git bash path",
+  "powershell path",
+  "file will not write",
+  "windows"
+ ],
+ "skill-maestro": [
+  "consider our skills",
+  "full array of skills",
+  "best skills for",
+  "custom skills"
+ ],
+ "open-steps-sweep": [
+  "remaining steps",
+  "scan the transcript",
+  "old tasks complete",
+  "everything i asked",
+  "left to finish",
+  "all tasks clear"
+ ]
+}
