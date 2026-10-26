@@ -1,6 +1,6 @@
 {
   "name": "skill-maestro",
-  "owner": { "name": "max0wellseltzer-wow" },
+  "owner": { "name": "Max (max0wellseltzer-wow)" },
   "description": "The Maestro: picks skills for a task from whatever library you have, proves the picks on the task's real subject, and learns from what was really used.",
   "plugins": [
     {
