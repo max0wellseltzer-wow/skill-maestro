@@ -44,9 +44,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-STATE = Path(os.environ.get("MAESTRO_STATE", Path.home() / ".claude" / "skill-maestro-state"))
+CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")   # v20.0.16: as Claude Code finds it
+STATE = Path(os.environ.get("MAESTRO_STATE", CLAUDE_HOME / "skill-maestro-state"))
 MODEL_CACHE = Path(os.environ.get("MAESTRO_MODEL_CACHE",            # v20.0.4: the downloaded model is immutable, so it
-                                  Path.home() / ".claude" / "skill-maestro-state" / "fastembed_cache"))   # lives in one place
+                                  CLAUDE_HOME / "skill-maestro-state" / "fastembed_cache"))   # lives in one place
                                                                    # whatever --state says (a tour state used to re-download it)
 MODEL = os.environ.get("MAESTRO_MEANING_MODEL", "BAAI/bge-small-en-v1.5")
 VENV_PY = Path.home() / "venvs" / "maestro-meaning" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")

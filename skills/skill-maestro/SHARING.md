@@ -51,6 +51,7 @@ wherever it is. The extras find the Maestro the same way: beside them, at `MAEST
 - State lives in `~/.claude/skill-maestro-state/` (`ledger.jsonl` append-only, caches, `health.json`); in a Claude
   Code cloud session with `CLAUDE_CODE_REMOTE=true` and a project, the ledger is `<project>/shared/skill-maestro/ledger.jsonl`
   so it survives the container (give it `merge=union` in `.gitattributes`).
+- Every `~/.claude` in this guide means Claude Code's own folder: `$CLAUDE_CONFIG_DIR` when that is set, else `~/.claude` (v20.0.16).
 
 ## Tell it about your project
 

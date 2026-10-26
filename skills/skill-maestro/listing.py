@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-USER = Path.home() / ".claude"
+USER = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")   # as Claude Code finds its folder
 CORE_FILE = HERE / "listing_core.txt"
 STATE = HERE / "state" / "listing"
 STRICT = {"off", "user-invocable-only"}

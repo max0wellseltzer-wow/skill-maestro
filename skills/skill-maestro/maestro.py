@@ -91,8 +91,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-CLAUDE_HOME = Path.home() / ".claude"   # the one place the user's Claude Code folder is spelled
+# Claude Code's own folder, found the way Claude Code finds it (v20.0.16): CLAUDE_CONFIG_DIR, else ~/.claude
+CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 USER_LIB = CLAUDE_HOME / "skills"
+PY = "python" if sys.platform == "win32" else "python3"   # v20.0.16: printed commands (macOS ships python3, no python)
 FINDER_FILES = ("find_skill.py", "core_pin.py")
 FINDER_HOMES = ("skill-finder", "core-skill-pin")   # the repo keeps core_pin.py and its tables in core-skill-pin
 
@@ -108,6 +110,12 @@ def companion(root: Path, fname: str) -> Path:
 
 def has_finder(root: Path) -> bool:
     return all(companion(root, f).is_file() for f in FINDER_FILES)
+
+
+def sibling_cmd(roots: list[Path], skill: str, script: str, args: str) -> str:
+    """v20.0.16: a printed command names a sibling skill's real file, or is '' when no library root has it."""
+    f = next((r / skill / script for r in roots if (r / skill / script).is_file()), None)
+    return f'{PY} "{f.as_posix()}" {args}' if f else ""
 
 
 if not has_finder(ROOT) and has_finder(USER_LIB):
@@ -311,8 +319,8 @@ def thompson_slots(ranked: list[dict], pool: list[dict], stats: dict, seed: str,
     for theta, c, good, bad in draws[:k]:
         out.append({**c, "via": f"Thompson slot (exploration, dial M44; draw {theta:.2f} from {good} good / {bad} bad)"})
     return out
-SESSION_NOTE = """SKILL MAESTRO, five lines (a reminder, not a trigger):
-1. Open work (design, invent, explore, a vague card, a long ask): run `python ~/.claude/skills/skill-maestro/maestro.py score "<the ask>"` first; it answers SKIP, QUICK or FULL in ~200 tokens.
+SESSION_NOTE = f"""SKILL MAESTRO, five lines (a reminder, not a trigger):
+1. Open work (design, invent, explore, a vague card, a long ask): run `{PY} "{(HERE / 'maestro.py').as_posix()}" score "<the ask>"` first; it answers SKIP, QUICK or FULL in ~200 tokens.
 2. SKIP or QUICK: build; use at most the finder's picks it names (1-22 by the task's size).
 3. FULL: restate the ask as operations with --concepts, then read only the picks that fit.
 4. Prove a pick on the real subject before reading or rating it: `try`, then `fit RUN SKILL kind= question= assumes= used= "why"`.
@@ -2816,7 +2824,7 @@ def code_type_line() -> str | None:
               "quind": "keep the sheet short: take the first two picks and go, no PONDER needed",
               "spatch": "take one SPARK skill and run it; no full sheet needed",
               "marvey": "read-only: picks may be read, never used to edit"}
-    return f"CODE TYPE {sticky} is sticky: {tlines.get(sticky, 'use the type profile in ~/.claude/skills/' + sticky)}"
+    return f"CODE TYPE {sticky} is sticky: {tlines.get(sticky, 'use the type profile in ' + (ROOT / sticky).as_posix())}"
 
 
 def used_report(rows: list[dict], run: str | None) -> list[str]:
@@ -3605,11 +3613,12 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
         fams = {lib.family(n) for n in taken}
         for c, row in zip(cons, per):
             best = row[0][1] if row else 0.0
+            if c["analogy"]:                               # v20.0.16: kingdom-sweep only where this library has it
+                c["mine"] = sibling_cmd(lib.roots, "kingdom-sweep", "sweep.py", f'"{c["text"][:40]}"')
             if best < NEED_FLOOR and not c["analogy"]:     # an analogy is mined (kingdom-sweep), not a missing skill
                 slug = "-".join(lib.fs._tokens(c["text"])[:3]) or "new-skill"
-                seed = (f"python ~/.claude/skills/skill-foundry/foundry.py {slug} \"{c['text'][:80]}\""
-                        if (lib.root / "skill-foundry").is_dir() else       # v14: a library without skill-foundry
-                        f"python {Path(__file__).name} newskill {slug} \"{c['text'][:80]}\"")
+                seed = (sibling_cmd(lib.roots, "skill-foundry", "foundry.py", f'{slug} "{c["text"][:80]}"')
+                        or f'{PY} "{(HERE / "maestro.py").as_posix()}" newskill {slug} "{c["text"][:80]}"')
                 needed.append({"concept": c["text"], "best": row[0][0] if row else "-", "score": best, "seed": seed})
         for i in range(max((len(r) for r in per), default=0)):  # round-robin: each concept offers its farthest fit
             for c, row in zip(cons, per):
@@ -3835,8 +3844,8 @@ def render(sheet: dict) -> str:
     L += spark_lines()
     for c in sheet.get("concepts", []):
         if c["analogy"]:
-            L.append(f"ANALOGY to mine: '{c['text'][:70]}'  -> python ~/.claude/skills/kingdom-sweep/sweep.py "
-                     f"\"{c['text'][:40]}\"  (what does the job there, and how?)")
+            mine = f"  -> {c['mine']}" if c.get("mine") else ""   # v20.0.16: set by score() only when sweep.py exists
+            L.append(f"ANALOGY to mine: '{c['text'][:70]}'{mine}  (what does the job there, and how?)")
     for x in sheet.get("needed", []):
         L.append(f"NEEDED (no skill does this well; best {x['best']} {x['score']:.2f}): '{x['concept'][:70]}'  "
                  f"seed: {x['seed']}")
@@ -4541,6 +4550,27 @@ def _selftest() -> bool:
               and context_line([], {"source": "none on disk", "session": "", "empty": "no transcript on disk"})
               == "CONTEXT: none, the task ranked alone (no transcript on disk)"
               and context_line([], {}) is None)              # 2026-10-26: the CONTEXT line names its transcript
+    # v20.0.16: a CLAUDE_CONFIG_DIR user gets that folder in every module, as Claude Code itself does
+    saved = {k: os.environ.pop(k, None) for k in ("CLAUDE_CONFIG_DIR", "MAESTRO_STATE", "MAESTRO_MODEL_CACHE")}
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            os.environ["CLAUDE_CONFIG_DIR"] = td
+            m2, li, me, ph = (_load(HERE / f"{n}.py", f"cfg_{n}") for n in ("maestro", "listing", "meaning", "phase"))
+            ok.append(m2.CLAUDE_HOME == m2.STATE.parent == m2.USER_LIB.parent == li.USER == me.STATE.parent
+                      == me.MODEL_CACHE.parent.parent == ph.projects_root().parent == Path(td))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    with tempfile.TemporaryDirectory() as td:                # v20.0.16: a printed command names a real file, or none
+        (Path(td) / "kingdom-sweep").mkdir()
+        (Path(td) / "kingdom-sweep" / "sweep.py").write_text("", encoding="utf-8")
+        sw = sibling_cmd([Path(td)], "kingdom-sweep", "sweep.py", '"x"')
+        ok.append(sibling_cmd([Path(td)], "skill-foundry", "foundry.py", "x") == "" and sw.startswith(PY + ' "')
+                  and (Path(td) / "kingdom-sweep" / "sweep.py").as_posix() in sw and sw.endswith('" "x"')
+                  and (HERE / "maestro.py").as_posix() in SESSION_NOTE and "~/" not in SESSION_NOTE)
     if __name__ == "__main__":                               # 2026-10-26: the hook's whisper ranks inside concert.py; run from
         ok.append(_load(HERE / "concert.py", "concert")._maestro().HOOK is HOOK)   # here it reuses this module and its HOOK
     for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase", "scrub"):   # v15/v16 + 2026-10-24/25: the modules beside this file

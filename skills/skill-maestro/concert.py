@@ -501,9 +501,13 @@ def thumbs(st, run: str, verdict: str, skill: str | None, why: str) -> str:
 
 
 HOOK_ASK = 1.2     # v20.0.7: seconds the hook gives a running meaning helper for one answer (a busy one is skipped)
-HOOK_SNIPPET = {
-    "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 20,
-              "command": "python \"%USERPROFILE%\\.claude\\skills\\skill-maestro\\maestro.py\" whisper --stdin --no-ledger"}]}]}}
+def hook_snippet() -> dict:
+    """The block `whisper --hook` prints. v20.0.16: it names this install's maestro.py, as the owner's working hook
+    does. The old block spelled %USERPROFILE%, which only cmd expands, so it failed on a Mac or Linux and missed an
+    install under CLAUDE_CONFIG_DIR; macOS ships python3 and no python."""
+    py = "python" if sys.platform == "win32" else "python3"
+    cmd = f'{py} "{(HERE / "maestro.py").as_posix()}" whisper --stdin --no-ledger'
+    return {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 20, "command": cmd}]}]}}
 
 
 def render_whisper(prompt: str, names: list[str], secs: float, verdict: str = "QUICK", why: str = "") -> str:
@@ -678,9 +682,10 @@ def cli(argv: list[str], lib, st, root: Path) -> int:
         return 0
     if sub == "whisper":
         if "--hook" in argv:
-            print(json.dumps(HOOK_SNIPPET, indent=1))
-            print("Paste the hooks block into ~/.claude/settings.json to hear a whisper at every prompt. It is OFF "
-                  "until you do. Preflight: python ~/.claude/skills/hook-preflight/hook_preflight.py (if installed).")
+            print(json.dumps(hook_snippet(), indent=1))
+            pf = M_.sibling_cmd([M_.ROOT, M_.USER_LIB], "hook-preflight", "hook_preflight.py", "").rstrip()
+            print(f"Paste the hooks block into {(M_.CLAUDE_HOME / 'settings.json').as_posix()} to hear a whisper at "
+                  "every prompt. It is OFF until you do." + (f" Preflight it first: {pf}" if pf else ""))
             return 0
         prompt = sys.stdin.read() if "--stdin" in argv else " ".join(pos)
         try:
@@ -785,6 +790,19 @@ def _selftest() -> bool:
         and dl[1]["meaning"] == "held-out 13/58"
     ok["brief/suggest cli positional parsing drops valued flags"] = \
         _pos(["play", "do", "the", "thing", "--subject", "F.md", "--top", "3"]) == ["do", "the", "thing"]
+    hk = hook_snippet()["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    ok["whisper --hook names this install's maestro.py, with no cmd-only %VAR%"] = (
+        (HERE / "maestro.py").as_posix() in hk and "%" not in hk and hk.endswith("whisper --stdin --no-ledger"))
+    import contextlib  # v20.0.16: what --hook prints, as a stranger sees it
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cli(["whisper", "--hook"], None, None, HERE)
+    said = buf.getvalue()
+    pf = said.strip().splitlines()[-1].partition("Preflight it first: ")[2]
+    ok["whisper --hook: names this folder's settings.json, a preflight only if its file exists, no ~/ or %VAR%"] = (
+        (_maestro().CLAUDE_HOME / "settings.json").as_posix() in said and "~/" not in said and "%" not in said
+        and (not pf or Path(pf.split('"')[1]).is_file()))
     ok["render_whisper: empty says nothing shares a word"] = "nothing shares" in render_whisper("x", [], 0.0) \
         and "/alpha" in render_whisper("x", ["alpha"], 0.01) and "1 by task size" in render_whisper("x", ["alpha"], 0.01)
     ok["render_whisper ends in a Skill call: FULL names skill-maestro, QUICK the pick, SKIP the card"] = (
