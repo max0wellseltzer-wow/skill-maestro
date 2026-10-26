@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20.0.10)
+# skill-maestro (Claude Code plugin package, v20.0.11)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard
@@ -47,6 +47,9 @@ If a `/plugin update` seems to change nothing, the plugin cache kept the old cop
   issue link for you to open. Ratings leave your machine only as a file you attach yourself (`SHARING.md`, "What
   leaves your machine"); `DO_NOT_TRACK=1` turns off even the pointer to it.
 - **Token cost:** about 200 tokens for a QUICK verdict, 400-600 for a FULL sheet; it says SKIP when a sheet is not worth it.
+  `maestro.py cost --listing` prints what your whole skill listing costs at every session start (name-only, described,
+  off, plugin and built-in entries, against a 200,000-token window); the package's own skills are listed with their
+  descriptions, as every plugin's are.
 - **Verify it yourself:** `python ~/.claude/skills/skill-maestro/maestro.py doctor` (12 checks) and
   `python ~/.claude/skills/skill-maestro/maestro.py --selftest` (prints PASS). Both read; neither writes outside
   `~/.claude/skill-maestro-state/`.

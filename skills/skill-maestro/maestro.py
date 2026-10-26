@@ -11,6 +11,7 @@ new skills are never missed. Design notes and the evidence behind v2: brainstorm
                      (v11: first triages SKIP / QUICK / FULL; SKIP and QUICK answer in a few lines; --full forces a sheet)
     python maestro.py triage "task"                             # the verdict alone (SKIP / QUICK / FULL) and why
     python maestro.py cost                                      # what the Maestro cost and what it bought, recent runs
+    python maestro.py cost --listing [--top N]                  # what the skill listing costs at every session start
     python maestro.py debt [--close-older-than DAYS]            # runs owed a rating or ponder; close stale ones as unused
     python maestro.py ponder <run_id> [--concepts2 "..."] [--note "..."]   # the second think step: blunders, quorum, missing
     python maestro.py vocab                                     # the operation tags for --concepts, with skill counts
@@ -3260,6 +3261,69 @@ def cost_report(rows: list[dict], last: int = 20) -> list[str]:
     return out
 
 
+LIST_OVERHEAD = 4            # tokens one listed entry costs beyond its name: the bullet, the separator, the line end
+CONTEXT_WINDOW = 200_000     # the window the percentage is against
+
+
+def listing_cost(lib, overrides: dict[str, str], plugins: dict | None = None) -> dict:
+    """What the skill listing costs at every session start (2026-10-26, `cost --listing`), estimated at ~4 characters
+    per token, read-only. Claude Code lists each loaded skill's name, plus its description unless skillOverrides says
+    "name-only"; an "off" or "user-invocable-only" entry is not listed to Claude at all; a plugin's skills ignore
+    skillOverrides and are listed with their description while the plugin is enabled; built-ins are listed described.
+    Returns per-skill rows (name, source, state, tokens, full) and the totals by state."""
+    plugins = plugins or {}
+    rows = []
+    for s in lib.skills:
+        name, desc, src = s["name"], s.get("desc") or "", lib.source.get(s["name"], "")
+        head = tokens_of(name) + LIST_OVERHEAD
+        full = head + tokens_of(desc)
+        if src.startswith("plugin "):
+            on = plugins.get(src[7:], (True, ""))[0]
+            state, tok = ("plugin", full) if on else ("plugin-off", 0)
+        elif src == "built-in":
+            state, tok = "built-in", full
+        else:
+            ov = overrides.get(name, "on")
+            if ov in ("off", "user-invocable-only"):
+                state, tok = ov, 0
+            elif ov == "name-only":
+                state, tok = "name-only", head
+            else:
+                state, tok = "described", full
+        rows.append({"name": name, "source": src or "library", "state": state, "tokens": tok, "full": full})
+    by: dict[str, list[int]] = {}
+    for r in rows:
+        by.setdefault(r["state"], [0, 0])
+        by[r["state"]][0] += 1
+        by[r["state"]][1] += r["tokens"]
+    return {"rows": rows, "by": by, "total": sum(r["tokens"] for r in rows), "all_described": sum(r["full"] for r in rows)}
+
+
+def listing_cost_report(lc: dict, top: int = 5) -> list[str]:
+    """The `cost --listing` lines: totals by state, the per-session total against the window, the fresh-install
+    figure, and the most expensive listed descriptions."""
+    order = ("described", "name-only", "off", "user-invocable-only", "plugin", "plugin-off", "built-in")
+    meaning = {"described": "name and description", "name-only": "name only", "off": "not listed",
+               "user-invocable-only": "not listed to Claude", "plugin": "plugin skills, described",
+               "plugin-off": "plugin disabled, not listed", "built-in": "Claude Code's own, described"}
+    out = [f"LISTING COST at every session start (estimate, ~4 characters per token; {len(lc['rows'])} skills seen):"]
+    for st in order:
+        if st in lc["by"]:
+            n, t = lc["by"][st]
+            out.append(f"  {st:<20} {n:>4} skill(s)  ~{t:>7,} tokens   ({meaning[st]})")
+    pct = 100 * lc["total"] / CONTEXT_WINDOW
+    out.append(f"TOTAL ~{lc['total']:,} tokens per session start (~{pct:.1f}% of a {CONTEXT_WINDOW:,}-token window)")
+    pct_all = 100 * lc["all_described"] / CONTEXT_WINDOW
+    out.append(f"IF EVERY SKILL WERE DESCRIBED: ~{lc['all_described']:,} tokens (~{pct_all:.1f}%): what a fresh install "
+               "of this library pays before `listing.py apply` (the core in listing_core.txt stays described)")
+    listed = sorted((r for r in lc["rows"] if r["state"] in ("described", "plugin", "built-in")),
+                    key=lambda r: (-r["tokens"], r["name"]))[:top]
+    if listed:
+        out.append(f"MOST EXPENSIVE DESCRIPTIONS LISTED NOW (top {len(listed)}):")
+        out.extend(f"  ~{r['tokens']:>5,}  {r['name']}  [{r['state']}]" for r in listed)
+    return out
+
+
 def score(lib: Library, st: State, task: str, top: int | None = None, graph: bool = False, questions: tuple = (),
           concepts: str = "", mechs: dict | None = None, session_ctx: str = "", subject: str | None = None,
           mode: str | None = None) -> dict:
@@ -4262,6 +4326,16 @@ def _selftest() -> bool:
     cr = "\n".join(cost_report(rows))
     ok.append("1 skipped, 1 quick, 0 full" in cr and "~500 tokens shown" in cr and "0 of 2" in cr)
     ok.append(tokens_of("abcd" * 10) == 10 and SELF == "skill-maestro")
+    # 2026-10-26 cost --listing: name-only pays the name, off pays nothing, a plugin pays while enabled, built-ins pay
+    from types import SimpleNamespace
+    fl = SimpleNamespace(skills=[{"name": "aa", "desc": "d" * 40}, {"name": "bb", "desc": "e" * 40}, {"name": "cc", "desc": "f" * 40},
+                                 {"name": "PL:pp", "desc": "g" * 40}, {"name": "simplify", "desc": "h" * 40}],
+                         source={"aa": "", "bb": "", "cc": "", "PL:pp": "plugin PL", "simplify": "built-in"})
+    lc = listing_cost(fl, {"bb": "name-only", "cc": "off"}, {"PL": (True, "PL@m")})
+    ok.append(lc["total"] == 52 and lc["all_described"] == 77 and lc["by"]["name-only"] == [1, 5] and lc["by"]["off"] == [1, 0]
+              and listing_cost(fl, {"bb": "name-only", "cc": "off"}, {"PL": (False, "PL@m")})["total"] == 36)
+    lr = "\n".join(listing_cost_report(lc, top=2))
+    ok.append("TOTAL ~52 tokens" in lr and "~77 tokens" in lr and "top 2" in lr and "PL:pp" in lr and "bb" not in lr.split("MOST")[1])
     # v14 fairness switches: each behaves as documented, whatever the default is
     global FAIR_ASKWORDS
     keep_a = FAIR_ASKWORDS
@@ -4457,7 +4531,7 @@ VALUED = ("--root", "--state", "--top", "--probes", "--project", "--budget", "--
           "--picks", "--lean", "--direct", "--ask")
 FLAGS = ("--graph", "--pool", "--json", "--plain", "--quick", "--keywords-only", "--full", "--custom-only", "--auto", "--no-ledger", "--misses", "--no-infer",
          "--no-kinds", "--brief", "--plain-words", "--ci", "--armed", "--compare", "--dry", "--hook", "--stdin", "--switches",
-         "--power", "--write", "--personas", "--stamp", "--observed-only", "--discriminative")
+         "--power", "--write", "--personas", "--stamp", "--observed-only", "--discriminative", "--listing")
 PLAIN_WORDS = ("PLAIN WORDS: pick = a skill it chose. [words] = chosen because your words match its description; "
                "[meaning] = chosen because the task's operations match what it does; [both] = both, the strongest. "
                "S1/S2/S3 = how much evidence backs it (S1 best). FIT = run it on your real file and say works or misfit. "
@@ -4718,6 +4792,8 @@ def main(argv: list[str]) -> int:
     elif cmd == "triage" and len(pos) > 1:                  # v11: the verdict alone, nothing written
         verdict, why = triage(" ".join(pos[1:]), Path(_opt(argv, "--project")) if _opt(argv, "--project") else Path.cwd())
         print(f"TRIAGE {verdict}: {why}")
+    elif cmd == "cost" and "--listing" in flags:          # 2026-10-26: what the skill listing itself costs every session
+        print("\n".join(listing_cost_report(listing_cost(lib, lib.overrides, lib.plugins), top=int(_opt(argv, "--top") or 5))))
     elif cmd == "cost":
         print("\n".join(cost_report(st.rows())))
     elif cmd == "debt":                                     # v11: one place to see and clear the feedback debt

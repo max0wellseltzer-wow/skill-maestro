@@ -1,6 +1,6 @@
 {
   "name": "skill-maestro",
-  "version": "20.0.10",
+  "version": "20.0.11",
   "description": "Pick and actually use the best skills from whatever skill library you have, fairly and at a known cost: triage first, read the task by meaning, prove each pick on the real subject, learn from what was really used.",
   "author": {
     "name": "Max (max0wellseltzer-wow) with Claude"
