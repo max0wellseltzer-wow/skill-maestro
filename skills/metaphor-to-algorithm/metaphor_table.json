@@ -1,0 +1,92 @@
+{
+  "_about": "Metaphor word -> the algorithm it actually names. 'folded_into' = the skill that absorbed it in the 2026-10-15 merges. 'cues' = algorithm keywords (not metaphors): description words that point at an algorithm even when the name is new. Generic words (rate, copy, spread, stage, variant, population, gap, cluster, best, toward, threshold, usage, route) were removed 2026-10-16: they misfired on ordinary descriptions (physarum->welford-stats, reproductive-strategy->token-bucket).",
+  "metaphors": {
+    "refractory": {
+      "algorithm": "cooldown / token bucket (min gap between accepted events)",
+      "folded_into": "token-bucket"
+    },
+    "buffer": {
+      "algorithm": "leaky bucket (absorb bursts, release at a fixed rate, count overflow)",
+      "folded_into": "token-bucket"
+    },
+    "percolation": {
+      "algorithm": "union-find connectivity threshold (when does a spanning cluster appear)",
+      "folded_into": "union-find"
+    },
+    "tessellation": {
+      "algorithm": "interval tiling / coverage check (no gaps, no overlaps)",
+      "folded_into": "interval-merge"
+    },
+    "partheno": {
+      "algorithm": "single-parent variant generation (mutate one seed, keep valid variants)",
+      "folded_into": "broadcast-spawn"
+    },
+    "conjugation": {
+      "algorithm": "whitelisted key transfer (copy only allowed keys from donor to recipient)",
+      "folded_into": "horizontal-transfer"
+    },
+    "seed-disperse": {
+      "algorithm": "top-k routing with threshold (send each item to its best-fitting targets above a cutoff)",
+      "folded_into": "triage"
+    },
+    "viral-spread": {
+      "algorithm": "capped bulk propagation (apply a change to many targets with a hard cap)",
+      "folded_into": "safe-bulk-edit"
+    },
+    "succession": {
+      "algorithm": "staged ladder with setbacks (state machine that can step back)",
+      "folded_into": "metamorphose"
+    },
+    "convection": {
+      "algorithm": "neighbour diffusion (exchange with adjacent cells only)",
+      "folded_into": "osmosis"
+    },
+    "osteogenesis": {
+      "algorithm": "usage-weighted strengthening (reinforce what is used, decay what is not)",
+      "folded_into": "stigmergy"
+    },
+    "catalyst": {
+      "algorithm": "memoization (cache a pure function's results)",
+      "folded_into": "fast-path-proof"
+    },
+    "next-extreme": {
+      "algorithm": "peak projection (project the next high/low from cycle spacing)",
+      "folded_into": "resonance"
+    },
+    "skill-soup": {
+      "algorithm": "population crossover (genetic algorithm over a pool)",
+      "folded_into": "cross-breed"
+    }
+  },
+  "cues": {
+    "cooldown": "cooldown / token bucket",
+    "throttle": "cooldown / token bucket",
+    "burst": "leaky bucket",
+    "overflow": "leaky bucket",
+    "connected": "union-find connectivity",
+    "spanning": "union-find connectivity",
+    "tile": "interval tiling / coverage",
+    "overlap": "interval tiling / coverage",
+    "mutate": "single-parent variant generation",
+    "whitelist": "whitelisted key transfer",
+    "dispatch": "top-k routing with threshold",
+    "propagate": "capped bulk propagation",
+    "ladder": "staged ladder with setbacks",
+    "diffuse": "neighbour diffusion",
+    "neighbour": "neighbour diffusion",
+    "neighbor": "neighbour diffusion",
+    "reinforce": "usage-weighted strengthening",
+    "cache": "memoization",
+    "memoize": "memoization",
+    "peak": "peak projection",
+    "extreme": "peak projection",
+    "crossover": "population crossover",
+    "gradient": "gradient ascent / greedy hill-climbing",
+    "climb": "gradient ascent / greedy hill-climbing",
+    "steepest": "gradient ascent / greedy hill-climbing",
+    "strongest": "argmax selection",
+    "smooth": "exponential decay / EWMA",
+    "ewma": "exponential decay / EWMA",
+    "exponentially": "exponential decay / EWMA"
+  }
+}

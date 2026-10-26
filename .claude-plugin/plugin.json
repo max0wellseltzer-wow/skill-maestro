@@ -1,6 +1,6 @@
 {
   "name": "skill-maestro",
-  "version": "20.0.5",
+  "version": "20.0.6",
   "description": "Pick and actually use the best skills from whatever skill library you have, fairly and at a known cost: triage first, read the task by meaning, prove each pick on the real subject, learn from what was really used.",
   "author": {
     "name": "Max (max0wellseltzer-wow) with Claude"
@@ -24,7 +24,11 @@
     "./skills/kingdom-sweep",
     "./skills/route-audit",
     "./skills/collision-registry",
-    "./skills/skill-maestro-extras"
+    "./skills/skill-maestro-extras",
+    "./skills/skill-foundry",
+    "./skills/metaphor-to-algorithm",
+    "./skills/lineage-ledger",
+    "./skills/source-labels"
   ],
   "homepage": "https://github.com/max0wellseltzer-wow/skill-maestro",
   "repository": "https://github.com/max0wellseltzer-wow/skill-maestro"

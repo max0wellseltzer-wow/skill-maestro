@@ -31,7 +31,7 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 `doctor` prints numbered fix steps for anything missing. `WELCOME.md` inside the skill is the plain-words version;
 `SHARING.md` says what the optional sibling skills and the extras package add.
 
-## Bundled skills (v20.0.5)
+## Bundled skills (v20.0.6)
 
 The core skill runs alone (a built-in word finder stands in when `skill-finder` is absent). `selfcheck`, `eval` and
 `meaning.py eval` need sibling skills, so the package bundles them under `skills/`, each with its own `--selftest`:
@@ -45,6 +45,10 @@ The core skill runs alone (a built-in word finder stands in when `skill-finder` 
 | `skill-health` | every bundled tool's selftest from a neutral folder (the `selfcheck` health step) |
 | `route-audit`, `collision-registry` | bonus: router self-test and the near-duplicate registry `skill-finder`'s pin uses |
 | `kingdom-sweep` | bonus: a concept swept across kingdoms for ideas |
+| `skill-foundry` | bonus: takes a seed skill idea through every library gate in order (`foundry.py`), then scaffolds it (`scaffold.py`) |
+| `metaphor-to-algorithm` | bonus: reduces a metaphor-named skill idea to the plain algorithm it names and checks whether the library has it already (a foundry gate) |
+| `lineage-ledger` | bonus: one append-only birth record per skill (parents, operator, prompt, who chose it); the foundry records a birth there. Ships without a ledger: yours starts empty |
+| `source-labels` | bonus: tags every claim in a pitch [REAL - source] / [IMAGINED] / [FABRICATED] and checks the labels (a foundry gate) |
 | `skill-maestro-extras` | the research commands listed below |
 
 Install by plugin and they are all in place. By hand: copy every folder under `skills/` into `~/.claude/skills/`.
