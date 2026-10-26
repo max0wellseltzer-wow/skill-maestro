@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20.0.12)
+# skill-maestro (Claude Code plugin package, v20.0.13)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard
@@ -85,12 +85,20 @@ Install by plugin and they are all in place. By hand: copy every folder under `s
 The skills' text names "the user" where the owner's copies name him; the example prompts in the probe files are the
 owner's, kept as test data.
 
-## See also: science-personas
+## See also: science-personas and maestro-companions
 
 The same publisher's [science-personas](https://github.com/max0wellseltzer-wow/science-personas) is a pack of
 fourteen expert-persona skills (statistics, causal inference, ML research, operations research, security research
 and more; written by K-Dense, MIT, text-only). The Maestro ranks them like any other skill: a persona is a priced
 pick, never the default reader. Install it with `/plugin marketplace add max0wellseltzer-wow/science-personas`.
+
+[maestro-companions](https://github.com/max0wellseltzer-wow/maestro-companions) is the pack of sixty-seven skills
+the Maestro's own ledger shows were read, tried, judged to fit or rated useful in real sessions: the point-of-view
+lenses (devils-advocate, steelman, future-self, worms-eye and nineteen more on pov-core), the finishing and review
+checks (finish-everything, doc-truth, decorative-check, brittle-test-audit) and the skill-library tools
+(demand-scan, exaptation-finder, peacock-tail). Install it with
+`/plugin marketplace add max0wellseltzer-wow/maestro-companions`; its README names the four scripts that also need
+skill-finder or skill-health from this plugin.
 
 ## Optional: the meaning reading and the extras
 

@@ -232,7 +232,8 @@ def run(argv: list[str], st, state_dir: Path, code: str = "", private: bool | No
         if do_not_track():
             print("DO_NOT_TRACK is set: `share` writes nothing. Unset it (or use `share --preview`, which only prints).")
             return 0
-        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else Path.cwd() / f"maestro_ratings_{sender_id()}_{time.strftime('%Y-%m-%d')}.json"
+        out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else state_dir / f"maestro_ratings_{sender_id()}_{time.strftime('%Y-%m-%d')}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(b, indent=1, ensure_ascii=False), encoding="utf-8")
         print(f"SHARE: {out}  ({_counts_line(n)}; sender {b['from']}; "
               f"task text {'INCLUDED' if with_tasks else 'left out (sha + words only)'})")
@@ -283,6 +284,21 @@ def _selftest() -> bool:
         r3 = intake([t / "b.json"], t / "c2", me="aaaaaaaaaaaa")
         ok["intake: your own bundle is not folded back in"] = r3["own"] == 1 and r3["added"] == 0
         ok["community_files lists the folded senders"] = len(community_files(t)) == 1
+        # v20.0.13: `share` writes the bundle into the state folder, never into the current folder
+        class _St:
+            def rows(self):
+                return rows
+        saved_dnt, cwd_before = os.environ.pop("DO_NOT_TRACK", None), set(Path.cwd().glob("maestro_ratings_*.json"))
+        try:
+            import contextlib, io
+            with contextlib.redirect_stdout(io.StringIO()):
+                run(["share"], _St(), t / "state", code="c0de", private=False)
+        finally:
+            if saved_dnt is not None:
+                os.environ["DO_NOT_TRACK"] = saved_dnt
+        ok["share: the bundle lands in the state folder, not the current folder"] = (
+            len(list((t / "state").glob("maestro_ratings_*.json"))) == 1
+            and set(Path.cwd().glob("maestro_ratings_*.json")) == cwd_before)
     url = issue_url(b, Path("maestro_ratings_x.json"), False)
     ok["issue_url: summary counts only, under the limit, no row text in the link"] = (
         url.startswith(REPO + "/issues/new?template=") and len(url) < URL_LIMIT and "a%40example" not in url

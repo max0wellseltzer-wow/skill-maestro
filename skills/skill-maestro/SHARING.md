@@ -84,7 +84,7 @@ The bundle, in three commands:
 1. `python maestro.py share --preview` prints exactly what a bundle would hold and writes nothing. Paths, e-mails
    and key-shaped strings are already masked; task text is left out unless you pass `--with-tasks` (then each task is
    cut to 500 characters, masked the same way).
-2. `python maestro.py private off`, then `python maestro.py share --issue`: writes the file and prints a prefilled
+2. `python maestro.py private off`, then `python maestro.py share --issue`: writes the file into `~/.claude/skill-maestro-state/` and prints a prefilled
    issue link on the Maestro's repository. The link carries only the counts, your anonymous sender id and the file
    name; the rows travel in the file you attach. `private on` afterwards if you like.
 3. Open the link, attach the file, read the form, send. You can also attach the file to a pull request instead.
