@@ -83,8 +83,26 @@ def rows_of(state: Path) -> list[dict]:
             if isinstance(r, dict) and r.get("ts"):
                 out.append(r)
         _ROWS.clear()
-        _ROWS[key] = out
+        _ROWS[key] = as_turns(out)
     return _ROWS[key]
+
+
+def as_turns(rows: list[dict]) -> list[dict]:
+    """The learning view (v20.0.18): a mid-turn prompt's skills go back to the typed prompt whose turn it interrupted,
+    and the mid-turn row is dropped. v20.0.17 gave mid-turn asks their own rows, which is right for hearing the owner
+    but cost the held-out eval 6 probes and won none (McNemar p = 0.031); learning keeps the old turn shape."""
+    out: list[dict] = []
+    for r in rows:
+        if not r.get("queued"):
+            out.append(r)
+            continue
+        host = out[-1] if out and out[-1].get("session") == r.get("session") else None
+        if host is not None:
+            host = out[-1] = dict(host)
+            for k in ("used", "observed"):
+                host[k] = sorted(set(host.get(k) or []) | set(r.get(k) or []))
+            host["maestro"] = bool(host.get("maestro") or r.get("maestro"))
+    return out
 
 
 def table(rows: list[dict], before=None, recent: int = RECENT) -> dict:
@@ -358,6 +376,9 @@ def _selftest() -> bool:
     ok["skills-index -> skill-health is the strongest transition"] = tab["next"]["skills-index"].most_common(1)[0][0] == "skill-health"
     ok["the Maestro and a sweep never enter the table"] = SELF not in tab["out"] and "x1" not in tab["out"] and not any(SELF in c for c in tab["next"].values())
     ok["a cut leaves out the later rows"] = table(rows, before="2026-10-02 00:00")["rows"] == 3 and table(rows, before=time.mktime(time.strptime("2026-10-02", "%Y-%m-%d")))["rows"] == 3
+    tv = as_turns([{"session": "s1", "used": ["a"]}, {"session": "s1", "used": ["b"], "queued": True},
+                   {"session": "s2", "used": ["c"], "queued": True}, {"session": "s2", "used": ["d"]}])
+    ok["learning folds a mid-turn ask into its turn (v20.0.18)"] = [t["used"] for t in tv] == [["a", "b"], ["d"]]
     r = reading(tab, [["skills-index"]])
     ok["after skills-index the reading says skill-health first, skills-index itself second (sticky)"] = r[:2] == ["skill-health", "skills-index"]
     ok["no context, no reading"] = reading(tab, []) == []

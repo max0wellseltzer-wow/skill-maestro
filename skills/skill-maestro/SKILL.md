@@ -122,7 +122,7 @@ writing. `--full` prints every section; `--brief` filters it to the working line
 - `scrub.py` keeps the package free of the owner's machine: `survey build` passes every row through it, and
   `python scrub.py [--write]` is the full pass over `cards/tested.jsonl` (home folder to `~`, workspace to
   `<workspace>`, the owner's name to "the user"). Run it before a public push.
-- `maestro.py eval` is held-out accuracy on the frozen 58; `evals/probes_walkforward_2026-10-16.tsv` (81 real prompts,
+- `maestro.py eval` is held-out accuracy on the frozen 79; `evals/probes_walkforward_2026-10-16.tsv` (81 real prompts,
   nothing tuned on them) is the honest yardstick. `eval --misses` names every miss; `--null N`, `--ci`, `--armed`,
   `--before DATE`, `--power` are the permutation null, bootstrap interval, planted tripwire, memory cut and
   significance budget. `trend --compare` refuses to pair evals whose answer key differs. Run evals under the meaning

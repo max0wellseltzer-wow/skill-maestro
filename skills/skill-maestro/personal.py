@@ -60,11 +60,8 @@ def examples(state: Path, ledger_rows: list[dict], before: float | None = None) 
     out = []
     hp = Path(state) / "hindsight.jsonl"
     if hp.is_file():
-        for line in hp.read_text(encoding="utf-8").splitlines():
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
+        from phase import rows_of                     # v20.0.18: the turn view (a mid-turn ask folded into its turn)
+        for r in rows_of(Path(state)):
             used = set(r.get("used") or []) | set(r.get("observed") or [])
             used.discard("skill-maestro") if r.get("maestro") else None
             if used and r.get("text"):
