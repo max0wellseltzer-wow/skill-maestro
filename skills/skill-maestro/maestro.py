@@ -120,7 +120,7 @@ def sibling_cmd(roots: list[Path], skill: str, script: str, args: str) -> str:
 
 if not has_finder(ROOT) and has_finder(USER_LIB):
     ROOT = USER_LIB    # a project mirror (the repo's .claude/skills) has no skill-finder: use the user library's
-STATE = CLAUDE_HOME / "skill-maestro-state"
+STATE = Path(os.environ.get("MAESTRO_STATE", CLAUDE_HOME / "skill-maestro-state"))   # v20.0.19: as meaning.py reads it
 STICKY_TYPE = CLAUDE_HOME / "code-types-mode.json"   # item 7: the sticky CODE type from code-types
 # A cloud session's home folder dies with its container, and with it every rating. There the ledger lives in the
 # repo (committed, git merge=union so two sessions' rows both survive); caches stay in the home folder. Every copy,
@@ -4570,6 +4570,9 @@ def _selftest() -> bool:
             m2, li, me, ph = (_load(HERE / f"{n}.py", f"cfg_{n}") for n in ("maestro", "listing", "meaning", "phase"))
             ok.append(m2.CLAUDE_HOME == m2.STATE.parent == m2.USER_LIB.parent == li.USER == me.STATE.parent
                       == me.MODEL_CACHE.parent.parent == ph.projects_root().parent == Path(td))
+            os.environ["MAESTRO_STATE"] = str(Path(td) / "elsewhere")   # v20.0.19: an eval's own state, not the live one
+            m3, me3 = (_load(HERE / f"{n}.py", f"st_{n}") for n in ("maestro", "meaning"))
+            ok.append(m3.STATE == me3.STATE == Path(td) / "elsewhere")
     finally:
         for k, v in saved.items():
             if v is None:
