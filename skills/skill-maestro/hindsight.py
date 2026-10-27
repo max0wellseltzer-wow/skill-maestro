@@ -78,7 +78,7 @@ MAX_CHARS = 1500        # a pasted wall of text is cut so it does not match ever
 EXCERPT = 160
 SKILL_PATH = re.compile(r"skills[\\/]+([a-z0-9]+(?:-[a-z0-9]+)*)[\\/]")
 MAESTRO_RUN = re.compile(r"maestro\.py\\?\"?\s+(?:score|play|triage|whisper)\b|\"skill\":\s*\"skill-maestro\"")   # the echo flag
-CACHE_V = 4             # the cache's row shape; an older index is rescanned whole (v4: the whisper's picks per prompt)
+CACHE_V = 6             # the cache's row shape; an older index is rescanned whole (v4: the whisper's picks per prompt; v5: queued and pasted owner prompts; v6: the queued flag)
 WHISPER_RX = re.compile(r"WHISPER \(([\d.]+)s(?:, (\d+) by task size)?\): (.*)")   # the UserPromptSubmit hook's line (v19)
 PICK_RX = re.compile(r"/([a-z0-9][a-z0-9_.:-]*)")
 BLIND_OVERLAP = 1       # v19: a use is BLIND when the prompt shares at most this many words with the skill's description
@@ -117,6 +117,7 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
     Tool results and plain prose never count. Sidechains (subagents) and meta records are skipped; with `names`, a
     path hit counts only for a real skill name. Streams line by line: a transcript can be hundreds of MB. `stats`
     (optional) counts what was skipped: unreadable files and unparsable lines, so a gap is visible, not silent."""
+    import phase as P                                       # beside this file (HERE is on sys.path)
     try:
         fh = f.open(encoding="utf-8", errors="replace")
     except OSError:
@@ -128,7 +129,8 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
         for raw in fh:
             is_user = '"user"' in raw and '"tool_result"' not in raw
             is_whisper = "WHISPER (" in raw and '"hookEvent"' in raw      # v19: the whisper hook's attachment record
-            if not is_user and '"tool_use"' not in raw and not is_whisper:
+            is_queued = '"queued_command"' in raw           # 2026-10-27: a prompt typed while Claude worked
+            if not is_user and '"tool_use"' not in raw and not is_whisper and not is_queued:
                 continue
             try:
                 rec = json.loads(raw)
@@ -140,6 +142,17 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
                 continue
             msg = rec.get("message") or {}
             content = msg.get("content") if isinstance(msg, dict) else None
+            text = P.owner_text(rec) if (is_user or is_queued) and rec.get("type") in ("user", "attachment") else ""
+            if text:                                        # the one owner filter (phase.owner_text), 2026-10-27
+                if cur and text == cur["text"]:              # a queued prompt written again as a user row
+                    continue
+                if cur:
+                    yield cur
+                cur = {"ts": str(rec.get("timestamp") or "")[:16].replace("T", " "),
+                       "session": str(rec.get("sessionId") or f.stem)[:8], "text": text, "used": set(), "observed": set(),
+                       "maestro": False, "whispered": [], "whisper_s": None,
+                       "queued": rec.get("type") == "attachment"}   # 2026-10-27: typed while Claude worked
+                continue
             if rec.get("type") == "attachment":              # v19: what the whisper hook showed after this prompt
                 att = rec.get("attachment") or {}
                 m = WHISPER_RX.search(str(att.get("content") or att.get("stdout") or "")) \
@@ -148,15 +161,7 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
                     cur["whispered"] = [p.split(":")[-1] for p in PICK_RX.findall(m.group(3).split("   (")[0])]
                     cur["whisper_s"] = float(m.group(1))
                 continue
-            if rec.get("type") == "user" and is_user:
-                text = REMINDER.sub("", _text(content)).strip()
-                if text and not text.startswith(NOT_OWNER):
-                    if cur:
-                        yield cur
-                    cur = {"ts": str(rec.get("timestamp") or "")[:16].replace("T", " "),
-                           "session": str(rec.get("sessionId") or f.stem)[:8], "text": text, "used": set(), "observed": set(),
-                           "maestro": False, "whispered": [], "whisper_s": None}
-            elif rec.get("type") == "assistant" and cur is not None and isinstance(content, list):
+            if rec.get("type") == "assistant" and cur is not None and isinstance(content, list):
                 for b in content:
                     if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                         continue
@@ -220,7 +225,7 @@ def build(state: Path, paths, names: set, tokens, write: bool = True, log=None) 
                         "used": used, "observed": sorted(u for u in t.get("observed", ()) if u != M.SELF),
                         "sweep": len(used) > SWEEP_MAX, "excerpt": redact(text[:EXCERPT]),
                         "text": redact(text), "maestro": bool(t.get("maestro")),
-                        "whispered": list(t.get("whispered") or []), "whisper_s": t.get("whisper_s")})   # v19
+                        "whispered": list(t.get("whispered") or []), "whisper_s": t.get("whisper_s"), "queued": bool(t.get("queued"))})   # v19; queued 2026-10-27
         new_index[key] = sig
     new_index["_v"] = CACHE_V
     seen, dedup = set(), []                      # a continued session repeats its earlier prompts in a new file
@@ -541,6 +546,8 @@ def reach(rows: list[dict], desc: dict[str, str] | None = None, tokens=None, sin
     never_whispered = [(u, n) for u, n in ucount.most_common() if u not in uwhisp and any(r.get("whispered") for r in lab)][:8]
     top10 = sum(n for _, n in ucount.most_common(10))
     ks = sorted(len(picks[id(r)]) for r in lab_w)
+    by_kind = {k: [sum(1 for r in lab_w if bool(r.get("queued")) == q and set(r["used"]) & set(picks[id(r)])),
+                   sum(1 for r in lab_w if bool(r.get("queued")) == q)] for k, q in (("typed", False), ("mid-turn", True))}
     weeks: dict[str, list[int]] = {}
     for r in lab_w:
         y, m_, d = (int(x) for x in r["ts"][:10].split("-"))
@@ -572,7 +579,7 @@ def reach(rows: list[dict], desc: dict[str, str] | None = None, tokens=None, sin
     return {"since": since, "prompts": len(rs), "whispered": len(wh), "first_whisper": wh[0]["ts"][:10] if wh else None,
             "recent_s_median": rsecs[len(rsecs) // 2] if rsecs else None, "recent_k_median": rks[len(rks) // 2] if rks else None,
             "recent_n": len(recent),
-            "labelled": len(lab), "labelled_whispered": len(lab_w), "hit_any": hit_any, "hit_first": hit_first,
+            "labelled": len(lab), "labelled_whispered": len(lab_w), "by_kind": by_kind, "hit_any": hit_any, "hit_first": hit_first,
             "uses": len(uses), "recalled": recalled, "k_median": ks[len(ks) // 2] if ks else 0,
             "distinct_used": len(ucount), "library": len(desc) if desc else None, "uses_total": sum(ucount.values()),
             "top10_share": (top10 / sum(ucount.values())) if ucount else None, "top_used": ucount.most_common(10),
@@ -596,6 +603,9 @@ def render_reach(x: dict) -> str:
                  + (f"; the hook took {x['whisper_s_median']:.1f} s (median over all)" if x.get("whisper_s_median") is not None else "")
                  + (f"; the last {x['recent_n']} whispers: {x['recent_s_median']:.1f} s, {x['recent_k_median']} picks (medians)"
                     if x.get("recent_s_median") is not None else ""))
+        if x.get("by_kind", {}).get("mid-turn", [0, 0])[1]:
+            L.append("  BY KIND: " + "; ".join(f"{k} {pct(*v)}" for k, v in x["by_kind"].items())
+                     + " (mid-turn = typed while Claude worked; its follow-on skills often belong to the turn before)")
         L.append(f"  RECALL: of the {x['uses']} skills reached for after whispered prompts, {pct(x['recalled'], x['uses'])} had been "
                  "whispered; the rest were found another way (a sheet, memory, the listing)")
         if x["never_used"]:
@@ -846,6 +856,9 @@ def _selftest() -> bool:
         ok["v19 reach: --since cuts the window; render names FOLLOWED and DIVERSITY"] = \
             reach(rows, lib.desc, lib.fs._tokens, since="2026-10-21")["labelled_whispered"] == 1 \
             and "FOLLOWED" in render_reach(rc) and "DIVERSITY" in render_reach(rc)
+        ok["2026-10-27 reach: BY KIND splits typed from mid-turn; the line is silent with no mid-turn prompt"] = \
+            sum(v[1] for v in rc["by_kind"].values()) == rc["labelled_whispered"] and "BY KIND" not in render_reach(rc) \
+            and "BY KIND" in render_reach({**rc, "by_kind": {"typed": [1, 1], "mid-turn": [0, 1]}})
         ok["secrets and mail addresses are redacted in the cache"] = \
             all("sk-abcdefghijklmnop" not in r["text"] and "me@example.com" not in r["text"] for r in rows)
         s2 = build(state, [tr], set(lib.desc), lib.fs._tokens)

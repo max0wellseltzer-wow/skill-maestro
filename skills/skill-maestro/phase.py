@@ -36,6 +36,8 @@ SESSION_ID = re.compile(r"[0-9A-Za-z-]{8,64}")   # an id, never a glob or a path
 STAMP = re.compile(r'"timestamp":\s*"(\d{4}-\d\d-\d\d[T ][^"]*)"')   # a record's own stamp; an escaped quote never matches
 SKILL_PATH = re.compile(r"skills[\\/]+([a-z0-9]+(?:-[a-z0-9]+)*)[\\/]")
 NOT_OWNER = ("<", "Another Claude session", "This session is being continued", "Base directory", "[Request interrupted")
+REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+PASTED = re.compile(r"</?pasted_content\b[^>]*>")   # the paste wrapper; the words inside are the owner's
 _ROWS: dict[tuple, list[dict]] = {}
 _TABLES: dict[tuple, dict] = {}
 
@@ -160,6 +162,35 @@ def _text(content) -> str:
     return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
 
 
+def owner_text(rec) -> str:
+    """The owner's own words in one transcript row, else "". Two rows carry them: a main-thread `user` row (system
+    reminders and a <pasted_content> wrapper taken out) whose text does not start NOT_OWNER, and a prompt the owner
+    typed while Claude worked (a `queued_command` attachment, commandMode "prompt", origin human). Before 2026-10-27
+    the readers skipped both a queued and a pasted prompt, so a mid-turn ask never started its own turn and its
+    whisper landed on the turn before. Every transcript reader calls this one copy."""
+    if not isinstance(rec, dict) or rec.get("isSidechain") or rec.get("isMeta"):
+        return ""
+    if rec.get("type") == "user":
+        msg = rec.get("message") or {}
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            return ""
+        text = _text(content)
+    elif rec.get("type") == "attachment":
+        att = rec.get("attachment") or {}
+        origin = att.get("origin") if isinstance(att, dict) else None
+        if not (isinstance(att, dict) and att.get("type") == "queued_command" and att.get("commandMode") == "prompt"
+                and (not isinstance(origin, dict) or origin.get("kind", "human") == "human")):
+            return ""
+        text = att.get("prompt") if isinstance(att.get("prompt"), str) else _text(att.get("prompt"))
+    else:
+        return ""
+    text = REMINDER.sub("", text or "").strip()
+    if not text or (text.startswith(NOT_OWNER) and not text.startswith("<pasted_content")):
+        return ""
+    return PASTED.sub("", text).strip()
+
+
 def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES,
               max_age_s: int | None = None) -> list[list[str]]:
     """The used lists of the last k owner turns (that used anything) in a transcript's tail: Skill tool calls and
@@ -181,7 +212,8 @@ def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES,
     cur: set | None = None
     for raw in data.splitlines():
         is_user = '"user"' in raw and '"tool_result"' not in raw
-        if not is_user and '"tool_use"' not in raw:
+        is_queued = '"queued_command"' in raw
+        if not is_user and not is_queued and '"tool_use"' not in raw:
             continue
         try:
             rec = json.loads(raw)
@@ -191,9 +223,8 @@ def tail_used(transcript: Path, k: int = RECENT, max_bytes: int = TAIL_BYTES,
             continue
         msg = rec.get("message") or {}
         content = msg.get("content") if isinstance(msg, dict) else None
-        if rec.get("type") == "user" and is_user:
-            text = _text(content).strip()
-            if text and not text.startswith(NOT_OWNER):
+        if rec.get("type") in ("user", "attachment"):
+            if owner_text(rec):
                 cur = set()
                 turns.append((rec.get("timestamp"), cur))
         elif rec.get("type") == "assistant" and cur is not None and isinstance(content, list):
@@ -348,6 +379,24 @@ def _selftest() -> bool:
         ok["the transcript tail yields the used turns in order, the newest prompt (no uses yet) skipped"] = tail_used(t) == [["skills-index"], ["skill-health"]]
         ok["a sidechain's Skill call is not this session's"] = all("ghost" not in u for u in tail_used(t))
         ok["a tail cut inside the first prompt reads the whole turns after it"] = tail_used(t, max_bytes=t.stat().st_size - 10) == [["skill-health"]]
+        def queued(text, kind="human", mode="prompt"):
+            return json.dumps({"type": "attachment", "attachment": {"type": "queued_command", "prompt": text,
+                                                                    "commandMode": mode, "origin": {"kind": kind}}})
+        ok["owner_text: a queued owner prompt and a pasted one are the owner's; a peer, a task notice, a tool result, "
+           "a non-prompt queue and a sidechain are not"] = \
+            owner_text(json.loads(queued("go on"))) == "go on" \
+            and owner_text(json.loads(user('<pasted_content id="7">fix the cap</pasted_content>'))) == "fix the cap" \
+            and owner_text(json.loads(user("<system-reminder>r</system-reminder>\nland it"))) == "land it" \
+            and not owner_text(json.loads(user("<cross-session-message from=x>hi"))) \
+            and not owner_text(json.loads(user("<task-notification>done"))) \
+            and not owner_text(json.loads(queued("hi", kind="agent"))) \
+            and not owner_text(json.loads(queued("/clear", mode="bash"))) \
+            and not owner_text({"type": "user", "message": {"content": [{"type": "tool_result", "content": "x"}]}}) \
+            and not owner_text({"type": "user", "isSidechain": True, "message": {"content": "sub ask"}})
+        q = Path(td) / "q.jsonl"
+        q.write_text("\n".join([user("index please"), tool("Skill", {"skill": "skills-index"}), queued("and check"),
+                                tool("Skill", {"skill": "skill-health"}), user("now?")]) + "\n", encoding="utf-8")
+        ok["a queued owner prompt starts its own turn in the tail"] = tail_used(q) == [["skills-index"], ["skill-health"]]
         ok["live_context takes the named transcript"] = live_context(Path(td), t) == [["skills-index"], ["skill-health"]]
         ok["no fresh transcript, no context"] = live_context(Path(td), Path(td) / "missing.jsonl", max_age_s=-1,
                                                              paths=[Path(td)], session_id="") == []

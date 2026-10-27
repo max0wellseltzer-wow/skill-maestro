@@ -2996,6 +2996,18 @@ TRIAGE_OPEN = re.compile(r"\b(?:design|invent|imagine|brainstorm|explore|new (?:
 TRIAGE_ASK = re.compile(r"^\s*(?:is there|are there|do (?:we|i) have|which|what)\b[^.?]{0,40}\bskills?\b|\bskills? (?:for|to)\b",
                         re.I)
 CARD_ID = re.compile(r"\b(GT\d{1,4}|H-[A-G])\b", re.I)
+# 2026-10-26, a review from another session: the whisper labelled peer messages and background-task notices FULL.
+# A peer session's message, a task or agent notice, a reminder, a compaction summary or an interrupt marker is not
+# the user's ask, so the whisper says nothing to it. The tuple is hindsight.py's and phase.py's (the selftest checks
+# that all three agree). A paste the user queued mid-turn arrives as <pasted_content ...> and is still the user's.
+NOT_OWNER = ("<", "Another Claude session", "This session is being continued", "Base directory", "[Request interrupted")
+OWNER_TAGS = ("<pasted_content",)
+
+
+def not_owner_prompt(text) -> bool:
+    """True when the text is not the user's own ask (NOT_OWNER, less OWNER_TAGS); leading blanks are ignored."""
+    s = text.lstrip() if isinstance(text, str) else ""
+    return s.startswith(NOT_OWNER) and not s.startswith(OWNER_TAGS)
 
 
 def card_spec(card: str, project: Path | None) -> bool:
@@ -4571,6 +4583,23 @@ def _selftest() -> bool:
         ok.append(sibling_cmd([Path(td)], "skill-foundry", "foundry.py", "x") == "" and sw.startswith(PY + ' "')
                   and (Path(td) / "kingdom-sweep" / "sweep.py").as_posix() in sw and sw.endswith('" "x"')
                   and (HERE / "maestro.py").as_posix() in SESSION_NOTE and "~/" not in SESSION_NOTE)
+    # 2026-10-26, a review from another session: no note for a peer's message, a task or agent notice or an
+    # interrupt marker; the user's own words still get one, a paste queued mid-turn among them; the three
+    # NOT_OWNER copies agree
+    ok.append(all(map(not_owner_prompt, ("<cross-session-message from=a>maestro", "<task-notification>x",
+                                         "   <agent-message>x", "Another Claude session sent a message: maestro",
+                                         "[Request interrupted by user]")))
+              and not any(map(not_owner_prompt, ('<pasted_content id="1">x', '  <pasted_content id="2">', "fix it",
+                                                 "", None)))
+              and _load(HERE / "hindsight.py", "hindsight").NOT_OWNER == NOT_OWNER
+              == _load(HERE / "phase.py", "phase").NOT_OWNER)
+    import subprocess
+    with tempfile.TemporaryDirectory() as td:                # the hook's own path: JSON on stdin, nothing printed
+        hook = subprocess.run([sys.executable, "-I", "-X", "utf8", "-B", str(HERE / "maestro.py"), "whisper",
+                               "--stdin", "--no-ledger", "--root", td, "--state", td],
+                              input=json.dumps({"prompt": "Another Claude session sent a message: maestro, design it"}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+        ok.append(hook.returncode == 0 and hook.stdout == "")
     if __name__ == "__main__":                               # 2026-10-26: the hook's whisper ranks inside concert.py; run from
         ok.append(_load(HERE / "concert.py", "concert")._maestro().HOOK is HOOK)   # here it reuses this module and its HOOK
     for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase", "scrub"):   # v15/v16 + 2026-10-24/25: the modules beside this file
@@ -4672,6 +4701,8 @@ def main(argv: list[str]) -> int:
             HOOK["transcript"] = hook_in.get("transcript_path") if isinstance(hook_in, dict) else None   # 2026-10-25: the phase reading's session
         except ValueError:
             prompt = raw
+        if not_owner_prompt(prompt):                            # 2026-10-26: a peer's message or a task notice is
+            return 0                                            # not the user's ask, so the whisper says nothing
         t0 = time.time()
         fast = C.whisper_fast(prompt, Path(_opt(argv, "--state", STATE)), root)
         if fast is not None:

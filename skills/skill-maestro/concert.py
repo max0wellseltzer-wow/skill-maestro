@@ -692,6 +692,8 @@ def cli(argv: list[str], lib, st, root: Path) -> int:
             prompt = json.loads(prompt).get("prompt", prompt) if prompt.strip().startswith("{") else prompt
         except ValueError:
             pass
+        if M_.not_owner_prompt(prompt):                         # 2026-10-26: a peer's message or a task notice
+            return 0                                            # is not the user's ask; say nothing
         t0 = time.time()
         names = whisper(lib, prompt)
         verdict, why = M_.triage(prompt, Path.cwd() if (Path.cwd() / ".claude").is_dir() else None)       # v20.0.7: the note ends in the next step
@@ -803,6 +805,10 @@ def _selftest() -> bool:
     ok["whisper --hook: names this folder's settings.json, a preflight only if its file exists, no ~/ or %VAR%"] = (
         (_maestro().CLAUDE_HOME / "settings.json").as_posix() in said and "~/" not in said and "%" not in said
         and (not pf or Path(pf.split('"')[1]).is_file()))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        quiet = cli(["whisper", "<task-notification>x"], None, None, HERE)
+    ok["whisper: no note for a task notice or a peer's message (2026-10-26)"] = quiet == 0 and buf.getvalue() == ""
     ok["render_whisper: empty says nothing shares a word"] = "nothing shares" in render_whisper("x", [], 0.0) \
         and "/alpha" in render_whisper("x", ["alpha"], 0.01) and "1 by task size" in render_whisper("x", ["alpha"], 0.01)
     ok["render_whisper ends in a Skill call: FULL names skill-maestro, QUICK the pick, SKIP the card"] = (
