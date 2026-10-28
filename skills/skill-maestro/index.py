@@ -86,7 +86,8 @@ def index_path(root: Path, cache_dir: Path) -> Path:
     return Path(cache_dir) / f"index_{key}.json"
 
 
-def indexed_load(fs, root: Path, cache_dir: Path | None, force: bool = False, stats: dict | None = None) -> list:
+def indexed_load(fs, root: Path, cache_dir: Path | None, force: bool = False, stats: dict | None = None,
+                 write: bool = True) -> list:
     root = Path(root)
     pairs = skill_dirs(root)
     dirs = [d for d, _ in pairs]
@@ -114,7 +115,7 @@ def indexed_load(fs, root: Path, cache_dir: Path | None, force: bool = False, st
             changed += 1
         new[d.name] = e
         out.append(_as_skill(e))
-    if changed or set(old) != set(new):
+    if write and (changed or set(old) != set(new)):        # write False (--no-ledger): read, never written
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps({"version": INDEX_VERSION, "tokens": tsig, "root": str(root), "built": int(time.time()),

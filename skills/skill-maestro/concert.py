@@ -418,7 +418,7 @@ def whisper(lib, prompt: str, k: int | None = None) -> list[str]:
     return [r["name"] for r in scored[:n]]
 
 
-def whisper_fast(prompt: str, state_dir: Path, root: Path, k: int | None = None) -> list[str] | None:
+def whisper_fast(prompt: str, state_dir: Path, root: Path, k: int | None = None, keep: bool = True) -> list[str] | None:
     """O4/O7: the whisper without building a Library: read the prepared index file for `root` straight from disk and
     search it with index.py's FastSearch (the same scoring `search` uses). None when there is no index yet, and the
     caller falls back to the full path. Measured 2026-10-22: 1.4 s -> under 0.5 s per prompt.
@@ -458,7 +458,7 @@ def whisper_fast(prompt: str, state_dir: Path, root: Path, k: int | None = None)
         _maestro().MEANING_WAIT = 0.0
         _maestro().MEANING_ASK = HOOK_ASK                   # v20.0.7: a busy helper must not hold the prompt
         scored = _maestro().purpose_rank(lambda q, d: F.search(skills, q, d), prompt, root=root, state_dir=state_dir,
-                                       desc={s["name"]: s["desc"] for s in skills})   # 2026-10-24: meaning first; 2026-10-25: desc for the deliverable and phase votes
+                                       desc={s["name"]: s["desc"] for s in skills}, keep=keep)   # 2026-10-24: meaning first; 2026-10-25: desc for the deliverable and phase votes
         n, _why = whisper_count(prompt, scored)
         return [r["name"] for r in scored[:n]]
     except Exception:  # noqa: BLE001

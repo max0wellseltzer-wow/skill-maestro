@@ -66,14 +66,19 @@ def build_rules(home: Path | None = None, tmp: Path | None = None, roots: list[s
         owner = os.environ.get("MAESTRO_SCRUB_OWNER") or home.name
     h = _path_rx(str(home))
     claude_tmp = _path_rx(str(tmp / "claude"))
-    rules: list[tuple[str, str]] = [
+    tmp_rules = [
         (claude_tmp + SEP + r"[A-Za-z0-9_.-]+" + SEP + r"[0-9a-fA-F-]+" + SEP + "scratchpad", "<scratchpad>"),
         (claude_tmp, "<tmp>"),
+    ]
+    home_rules = [
         (h + SEP + r"\.claude" + SEP + "skills", "~/.claude/skills"),
         (h + SEP + r"\.claude", "~/.claude"),
         (h + SEP + "venvs", "~/venvs"),
         (h, "~"),
     ]
+    # a sandboxed run (home inside Claude Code's temp folder): the home is the more specific path, so it goes first
+    sandboxed = Path(str(home).replace("\\", "/").lower()).is_relative_to(str(tmp / "claude").replace("\\", "/").lower())
+    rules: list[tuple[str, str]] = home_rules + tmp_rules if sandboxed else tmp_rules + home_rules
     for r in roots:
         rules.append((_path_rx(r), "<workspace>"))
     slug = re.sub(r"[:\\/]", "-", str(home))           # C:\Users\name -> C--Users-name (Claude Code's project folder)
@@ -187,6 +192,11 @@ def _selftest() -> bool:
             dry_untouched and r1["rows"] == 2 and r1["changed"] == 1 and r1["shapes"]["C:/Users/Owner/o.txt"] == 1
             and not r1["leftovers"] and r2["written"] and b"\r" not in text
             and rows[0]["result"] == "wrote ~/o.txt" and rows[1]["result"] == "fine")
+    box = "C:/Users/Owner/AppData/Local/Temp/claude/C--Users-Owner/0123abcd-ef/scratchpad"
+    rb = build_rules(Path(box + "/box/home"), tmp, ["C:/Work"], owner="Owner")
+    ok["a home inside Claude Code's temp folder still goes to ~; the scratchpad outside it to <scratchpad>"] = (
+        s(box + "/box/home/q", rb) == "~/q" and s(box + "/box/home/.claude/x", rb) == "~/.claude/x"
+        and s(box + "/other.py", rb) == "<scratchpad>/other.py")
     ok["the real rules build from this machine and send its home to ~"] = scrub_text(str(Path.home()) + "/q") == "~/q"
     for k, v in ok.items():
         print(f"  {'PASS' if v else 'FAIL'} scrub: {k}")

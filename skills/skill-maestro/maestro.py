@@ -617,14 +617,14 @@ def deliverable_reading(task: str, ordered: list[str], desc: dict[str, str]) -> 
 
 
 def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None = None, state_dir: Path | None = None,
-                 desc: dict[str, str] | None = None, phase: list[list[str]] | None = None) -> list[dict]:
+                 desc: dict[str, str] | None = None, phase: list[list[str]] | None = None, keep: bool = True) -> list[dict]:
     """the user 2026-10-24: pick by meaning and purpose, not words. The meaning reading (weight_meaning) and the finder's
     words (weight 1) fused by reciprocal rank; fit is the fused score scaled to the best. Falls back to words alone
     when the meaning vectors are missing. `word_search(task, depth)` returns the finder's rows (name, score).
     2026-10-25: with `desc` (name -> description) the deliverable reading (dial M51) adds its vote."""
     words = [r["name"] for r in word_search(task, 120)]
     mean = meaning_rank(ranking_text(task), 120, root, state_dir) or []
-    self_ok, _ = self_pick_allowed([n for n, _ in mean[:SELF_TOP]], Path(state_dir or STATE))
+    self_ok, _ = self_pick_allowed([n for n, _ in mean[:SELF_TOP]], Path(state_dir or STATE), record=keep)
     sc: dict[str, float] = {}
     cap: dict[str, float] = {}                              # the same votes at CAP_K, for pick_count's cap (criticism 2)
     via: dict[str, list] = {}
@@ -749,7 +749,8 @@ def health_of(lib, st, name: str, timeout: int = 60) -> str | None:
                 verdict = "FAIL"
                 break
     cache[key] = verdict
-    cache_f.write_text(json.dumps(cache, sort_keys=True), encoding="utf-8")
+    if getattr(st, "keep", True):
+        cache_f.write_text(json.dumps(cache, sort_keys=True), encoding="utf-8")
     return verdict
 
 
@@ -939,12 +940,13 @@ def _load(path: Path, name: str):
     return mod
 
 
-def _lib_load(fs, r: Path) -> list:
-    """v15: the prepared index (index.py) for a root big enough to matter, else find_skill.load. Any doubt: the plain loader."""
+def _lib_load(fs, r: Path, write: bool = True) -> list:
+    """v15: the prepared index (index.py) for a root big enough to matter, else find_skill.load. Any doubt: the plain loader.
+    write False (--no-ledger): an index already there is read, none is written."""
     ix = HERE / "index.py"
     try:
         if ix.is_file():
-            return _load(ix, "maestro_index").indexed_load(fs, r, STATE)
+            return _load(ix, "maestro_index").indexed_load(fs, r, STATE, write=write)
     except Exception:  # noqa: BLE001
         pass
     return fs.load(r)
@@ -1024,8 +1026,9 @@ class Library:
     """The skill library (or several: the user library plus a project's .claude/skills) seen through its own tools.
     The tools load from the first root; a skill present in two roots is taken from the first."""
 
-    def __init__(self, root: Path, extra: tuple[Path, ...] = (), everything: bool = True) -> None:
+    def __init__(self, root: Path, extra: tuple[Path, ...] = (), everything: bool = True, keep: bool = True) -> None:
         self.everything = everything
+        self.keep = keep                     # False under --no-ledger: the index and caches are read, never written
         self.root = Path(root)
         self.roots = [self.root] + [Path(e) for e in extra if Path(e).is_dir() and Path(e) != self.root]
         fsp, pinp = companion(self.root, "find_skill.py"), companion(self.root, "core_pin.py")
@@ -1044,7 +1047,7 @@ class Library:
         as_plugin = {d.resolve(): pre for d, pre, _ in other if d.resolve() in mine}   # root: read it once, not twice
         for r, prefix, src in [(r, "", "") for r in self.roots] + [o for o in other if o[0].resolve() not in mine]:
             dirs = sorted(p for p in r.iterdir() if p.is_dir() and (p / "SKILL.md").exists())   # find_skill.load's order
-            for d, s in zip(dirs, _lib_load(self.fs, r)):          # v15: the prepared index (index.py)
+            for d, s in zip(dirs, _lib_load(self.fs, r, self.keep)):   # v15: the prepared index (index.py)
                 if prefix:
                     s = {**s, "name": prefix + s["name"]}
                     s["name_toks"] = set(self.fs._tokens(s["name"]))
@@ -1124,7 +1127,7 @@ class Library:
         return f, (json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None)
 
     def _save(self, f, data) -> None:
-        if f is not None:
+        if f is not None and self.keep:
             for old in f.parent.glob(f.name.rsplit("_", 1)[0] + "_*.json"):
                 old.unlink()                         # one cache per kind: the current library only
             f.write_text(json.dumps(data), encoding="utf-8")
@@ -1442,11 +1445,13 @@ class Library:
 class State:
     """Append-only ledger, the registry snapshot, the user's favourites."""
 
-    def __init__(self, d: Path, ledger: Path | None = None, also: tuple[Path, ...] = ()) -> None:
+    def __init__(self, d: Path, ledger: Path | None = None, also: tuple[Path, ...] = (), keep: bool = True) -> None:
         self.d = Path(d)
-        self.d.mkdir(parents=True, exist_ok=True)
+        self.keep = keep                                 # 2026-10-28: False under --no-ledger, so no cache or snapshot is written either
         self.ledger = Path(ledger) if ledger else self.d / "ledger.jsonl"
-        self.ledger.parent.mkdir(parents=True, exist_ok=True)
+        if keep:
+            self.d.mkdir(parents=True, exist_ok=True)
+            self.ledger.parent.mkdir(parents=True, exist_ok=True)
         self.also = tuple(Path(a) for a in also if Path(a) != self.ledger)   # read-only ledgers merged into rows()
         self.registry = self.d / "registry.json"
         self.fav = self.d / "favourites.json"
@@ -3226,7 +3231,7 @@ def read_cost(chosen: list[dict]) -> int:
 def triage_note(lib: Library, st: State, task: str, verdict: str, why: str) -> str:
     """The short answer for SKIP and QUICK: no score run (so no audit debt), the finder's picks sized 1 to PICKS_MAX by
     pick_count (the user, 2026-10-24: "1 to 22", never a fixed top 3), the override."""
-    scored = purpose_rank(lib.search, task, root=lib.root, state_dir=st.d, desc=lib.desc)   # meaning first (M46), then words, then the deliverable (M51)
+    scored = purpose_rank(lib.search, task, root=lib.root, state_dir=st.d, desc=lib.desc, keep=st.keep)   # meaning first (M46), then words, then the deliverable (M51)
     n, n_why = pick_count(task, [r for r in scored if "meaning" in r["via"]] or scored)
     top3 = scored[:n]
     L = [f"TRIAGE {verdict}: {why}.", f"PICKS {n} (1-22 by the task's size): {n_why}"]
@@ -3617,7 +3622,8 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
                 if nb not in names and nb in allr:
                     pool.append({**allr[nb], "via": f"graph neighbour of {c['name']}"})
                     names.add(nb)
-    self_ok, self_why = self_pick_allowed([n for n, _ in (meaning_rank(ranking_text(task), SELF_TOP, lib.root, st.d) or [])], st.d)
+    self_ok, self_why = self_pick_allowed([n for n, _ in (meaning_rank(ranking_text(task), SELF_TOP, lib.root, st.d) or [])], st.d,
+                                          record=st.keep)
     pool = [c for c in pool if c["name"] != SELF or self_ok]   # 2026-10-24: itself only when the prompt is about choosing skills, rarely
     blocked = [c for c in pool if c["name"] in anti]       # immune memory: wrong on a similar task before
     pool = [c for c in pool if c["name"] not in anti]
@@ -3771,7 +3777,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
         c["side_effects"] = side_effects(lib.desc.get(c["name"], ""))     # v12: consent before a world-changing pick
         md = lib.md.get(c["name"])
         if md is not None and not lib.quick:                              # v17: the scripts' own calls, read as an AST
-            c["script_effects"] = script_side_effects(md.parent, st.d)
+            c["script_effects"] = script_side_effects(md.parent, st.d if st.keep else None)
             c["allowed_tools"] = frontmatter_field(md, "allowed-tools")
     goal_words = set()
     for g in ch["goals"]:
@@ -3861,7 +3867,8 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
                "first_cmds": {c["name"]: c.get("first_cmd") for c in chosen}, "run": run_id, "t": int(time.time()), "task_sha": hashlib.sha256(task.encode()).hexdigest()[:16],
                "subject": subject, "subject_sha": subject_sha,   # v18: the subject named at score time (STALE if it changes)
                "words": sorted(words), "chosen": [c["name"] for c in chosen], "notes": notes, "pool": len(pool)})
-    st.registry.write_text(json.dumps(snap, indent=0, sort_keys=True), encoding="utf-8")
+    if st.keep:
+        st.registry.write_text(json.dumps(snap, indent=0, sort_keys=True), encoding="utf-8")
     pool_lines = [f"{r['name']} [{'T' if r.get('tool') else 'D'}] {lib.desc.get(r['name'], '')[:110]}" for r in pool]
     return {"lane_pairs": lane_pairs(ranked), "finder_top": finder_top, "run": run_id, "task": task, "pool": len(pool), "pool_lines": pool_lines, "chosen": chosen, "notes": notes,
             "library": news, "families": sorted({c["family"] for c in chosen}), "stay_inside": stay_inside(task),
@@ -4823,6 +4830,16 @@ def _selftest() -> bool:
                               input=json.dumps({"prompt": "Another Claude session sent a message: maestro, design it"}),
                               capture_output=True, text=True, encoding="utf-8", timeout=120)
         ok.append(hook.returncode == 0 and hook.stdout == "")
+    with tempfile.TemporaryDirectory() as td:                # v20.1.3 (a stranger's row 6): --no-ledger writes nothing,
+        lib, sd = Path(td) / "lib", Path(td) / "state"        # not health.json, the registry, the index or a self-pick
+        (lib / "invoice-check").mkdir(parents=True)
+        (lib / "invoice-check" / "SKILL.md").write_text("---\nname: invoice-check\ndescription: check invoice dates "
+                                                        "before a migration\n---\nbody\n", encoding="utf-8")
+        nl = subprocess.run([sys.executable, "-I", "-X", "utf8", "-B", str(HERE / "maestro.py"), "score",
+                             "plan a migration of the invoice table", "--no-ledger", "--full", "--root", str(lib),
+                             "--state", str(sd)], capture_output=True, text=True, encoding="utf-8", timeout=300,
+                            check=False, env=dict(os.environ, MAESTRO_NO_MEANING="1"))
+        ok.append(nl.returncode == 0 and not sd.exists())     # with the ledger on: ledger, registry and two caches
     if __name__ == "__main__":                               # 2026-10-26: the hook's whisper ranks inside concert.py; run from
         ok.append(_load(HERE / "concert.py", "concert")._maestro().HOOK is HOOK)   # here it reuses this module and its HOOK
     for mod in ("hindsight", "conduct", "introspect", "inverse", "index", "concert", "rerank", "community", "meaning", "personal", "modes", "phase", "scrub"):   # v15/v16 + 2026-10-24/25: the modules beside this file
@@ -4927,7 +4944,8 @@ def main(argv: list[str]) -> int:
         if not_owner_prompt(prompt):                            # 2026-10-26: a peer's message or a task notice is
             return 0                                            # not the user's ask, so the whisper says nothing
         t0 = time.time()
-        fast = C.whisper_fast(prompt, Path(_opt(argv, "--state", STATE)), root)
+        fast = C.whisper_fast(prompt, Path(_opt(argv, "--state", STATE)), root,
+                              keep=not ("--no-ledger" in argv or __import__("os").environ.get("MAESTRO_NO_LEDGER") == "1"))
         if fast is not None:
             cwd = Path.cwd()                                    # v20.0.7: triaged, so the note can end in the next step
             verdict, why = triage(prompt, cwd if (cwd / ".claude").is_dir() else None)
@@ -4945,18 +4963,19 @@ def main(argv: list[str]) -> int:
     project = (extra[0].parent.parent if extra and extra[0].name == "skills"
                else extra[0] if extra and (extra[0] / ".claude").is_dir() else None)
     shared = project / SHARED_LEDGER if project else None
+    keep = not ("--no-ledger" in flags or __import__("os").environ.get("MAESTRO_NO_LEDGER") == "1")   # v14: privacy
     if _opt(argv, "--state"):
-        st = State(Path(_opt(argv, "--state")))                      # an explicit state folder stands alone
+        st = State(Path(_opt(argv, "--state")), keep=keep)          # an explicit state folder stands alone
     elif CLOUD and shared is not None:
-        st = State(STATE, ledger=shared)                             # cloud: ratings go to the repo
+        st = State(STATE, ledger=shared, keep=keep)                  # cloud: ratings go to the repo
     else:
         community = _load(HERE / "community.py", "maestro_community").community_files(STATE) if (HERE / "community.py").is_file() else ()
-        st = State(STATE, also=((shared,) if shared else ()) + community)   # PC: also read cloud sessions and other people's bundles (2026-10-24)
+        st = State(STATE, also=((shared,) if shared else ()) + community, keep=keep)   # PC: also read cloud sessions and other people's bundles (2026-10-24)
     st.shared = CLOUD and shared is not None and not _opt(argv, "--state")
-    if "--no-ledger" in flags or __import__("os").environ.get("MAESTRO_NO_LEDGER") == "1":   # v14: privacy
+    if not keep:
         st.append = lambda row: None                   # nothing is written; history already there is still read
     extra = with_user_library(root, extra)
-    lib = Library(root, tuple(extra), everything="--custom-only" not in flags)
+    lib = Library(root, tuple(extra), everything="--custom-only" not in flags, keep=st.keep)
     lib.overrides, lib.plugins = skill_overrides(project), plugin_states(project)
     lib.project = project
     lib.cache_dir = st.d
