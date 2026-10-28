@@ -27,6 +27,9 @@ Pure Python 3.10+, standard library only. Nothing leaves the machine; `--no-ledg
   wireframe, mockup, picture) vote as one family (`DELIVERABLE_KIN`), so "draw a chart" does not reach them.
 - **1 to 22 picks**, sized by the task (one for a short ask, about two per sentence); never a fixed top 3.
 - **Anthropic's skills are full candidates** (`builtins.json`), loaded or not.
+- **Lanes** (`maestro.py lanes`): each pick is labelled precise, guard, proof, craft, alien, memory, finisher, big picture
+  or spark, and LANE PAIRS names two skills at the two ends of each lane's one metric (reach or form). `lanes add|remove|reset`
+  changes how many lanes there are. Labels only: they never move a pick.
 - **A mode per prompt** (`modes.py`): the mode whose `when` text means most what the prompt means is printed with HOW TO
   USE THE PICKS and clamps the pick count. `--mode NAME` forces one; `maestro.py modes` lists them. Your own modes live
   in `<state>/modes.json` (`modes add NAME "when" [--picks lo-hi] [--direct "..."] [--ask "q=default"]`, `modes remove`,

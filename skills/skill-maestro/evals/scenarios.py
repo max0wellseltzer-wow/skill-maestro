@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -69,9 +70,9 @@ def whisper(lib: Path, state: Path, prompt: str, env_extra: dict) -> tuple[list[
     r = subprocess.run([sys.executable, str(lib / "skill-maestro" / "maestro.py"), "whisper", "--stdin", "--no-ledger",
                         "--root", str(lib), "--state", str(state)], input=json.dumps({"prompt": prompt}),
                        capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
-    line = (r.stdout.strip().splitlines() or [""])[-1]
-    names = [w.strip().lstrip("/").rstrip(",") for w in line.split(":", 1)[-1].split("(by")[0].split(",")] if "WHISPER" in line else []
-    return [n for n in names if n], time.time() - t0, (r.stdout + r.stderr)[-400:]
+    line = next((x for x in r.stdout.splitlines() if x.startswith("WHISPER (")), "")   # 2026-10-28: was the last line,
+    names = re.findall(r"/([a-z0-9][a-z0-9_.:-]*)", line.split("): ", 1)[-1].split("   (")[0]) if "): " in line else []
+    return names, time.time() - t0, (r.stdout + r.stderr)[-400:]       # which is NEXT STEP since v20.0.7 (no picks)
 
 
 def stop_helpers(state: Path, wait: float = 120.0) -> str:

@@ -78,12 +78,20 @@ MAX_CHARS = 1500        # a pasted wall of text is cut so it does not match ever
 EXCERPT = 160
 SKILL_PATH = re.compile(r"skills[\\/]+([a-z0-9]+(?:-[a-z0-9]+)*)[\\/]")
 MAESTRO_RUN = re.compile(r"maestro\.py\\?\"?\s+(?:score|play|triage|whisper)\b|\"skill\":\s*\"skill-maestro\"")   # the echo flag
-CACHE_V = 6             # the cache's row shape; an older index is rescanned whole (v4: the whisper's picks per prompt; v5: queued and pasted owner prompts; v6: the queued flag)
-WHISPER_RX = re.compile(r"WHISPER \(([\d.]+)s(?:, (\d+) by task size)?\): (.*)")   # the UserPromptSubmit hook's line (v19)
+CACHE_V = 8            # the cache's row shape; an older index is rescanned whole (v4: the whisper's picks per prompt; v5: queued and pasted owner prompts; v6: the queued flag; v7: whispers on text the owner did not write; v8: the v20.0.7 whisper lines read)
+WHISPER_RX = re.compile(r"WHISPER \(([\d.]+)s(.*?)\): (.*)")   # the UserPromptSubmit hook's line (v19). 2026-10-28: the
+# v20.0.7 lines "(1.6s, FULL: <reason>; 2 by task size)", "(s, QUICK, 2 by ...)", "(s, SKIP: <reason>)" were unread
+# (the reach counted 0 owner whispers after 2026-10-27); the reason is cut before its first colon, so "): " ends the head
 PICK_RX = re.compile(r"/([a-z0-9][a-z0-9_.:-]*)")
 BLIND_OVERLAP = 1       # v19: a use is BLIND when the prompt shares at most this many words with the skill's description
 REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 NOT_OWNER = ("<", "Another Claude session", "This session is being continued", "Base directory", "[Request interrupted")
+TEXT_KINDS = (("Another Claude session", "peer message"), ("<cross-session-message", "peer message"),
+              ("<task-notification", "task notice"), ("<agent-message", "agent message"),
+              ("<local-command-", "local command"), ("<command-name", "slash command"), ("<system-reminder", "reminder"),
+              ("<bash-", "shell output"), ("This session is being continued", "summary"),
+              ("[Request interrupted", "interrupt"))   # 2026-10-28, from whisper_census.py (session b0f113f4)
+WHISPER_SKIP_LANDED = "2026-10-27 03:42"   # UTC: the hook's not_owner_prompt skip reached git (d7c408c); live was earlier
 SECRET = re.compile(r"(?i)(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\b[A-Fa-f0-9]{32,}\b|"
                     r"\b(?:api[_ -]?key|token|secret|password)\s*[=:]\s*\S+)")
 
@@ -96,6 +104,25 @@ def _text(content) -> str:
     if isinstance(content, str):
         return content
     return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+
+
+def text_kind(rec) -> str | None:
+    """The kind of a prompt-bearing row the owner did not write (a peer's message, a task notice, ...): a main-thread
+    user row that is not a tool result, or a queued_command attachment. None for any other row."""
+    if rec.get("type") == "attachment":
+        att = rec.get("attachment") or {}
+        if not (isinstance(att, dict) and att.get("type") == "queued_command"):
+            return None
+        t = att.get("prompt") if isinstance(att.get("prompt"), str) else _text(att.get("prompt"))
+    elif rec.get("type") == "user":
+        c = (rec.get("message") or {}).get("content")
+        if isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c):
+            return None
+        t = _text(c)
+    else:
+        return None
+    s = (t or "").lstrip()
+    return next((k for p, k in TEXT_KINDS if s.startswith(p)), "other") if s else None
 
 
 def transcript_files(paths) -> list[Path]:
@@ -124,7 +151,7 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
         if stats is not None:
             stats["unreadable"] = stats.get("unreadable", 0) + 1
         return
-    cur = None
+    cur, last_kind = None, None             # last_kind: who wrote the newest prompt row, so a whisper goes to its own text
     with fh:
         for raw in fh:
             is_user = '"user"' in raw and '"tool_result"' not in raw
@@ -144,22 +171,30 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
             content = msg.get("content") if isinstance(msg, dict) else None
             text = P.owner_text(rec) if (is_user or is_queued) and rec.get("type") in ("user", "attachment") else ""
             if text:                                        # the one owner filter (phase.owner_text), 2026-10-27
+                last_kind = "owner"
                 if cur and text == cur["text"]:              # a queued prompt written again as a user row
                     continue
                 if cur:
                     yield cur
                 cur = {"ts": str(rec.get("timestamp") or "")[:16].replace("T", " "),
                        "session": str(rec.get("sessionId") or f.stem)[:8], "text": text, "used": set(), "observed": set(),
-                       "maestro": False, "whispered": [], "whisper_s": None,
+                       "maestro": False, "whispered": [], "whisper_s": None, "stray": [],
                        "queued": rec.get("type") == "attachment"}   # 2026-10-27: typed while Claude worked
+                continue
+            if (is_user or is_queued) and text_kind(rec):    # 2026-10-28: a peer's or a tool's text, not a new turn
+                last_kind = text_kind(rec)
                 continue
             if rec.get("type") == "attachment":              # v19: what the whisper hook showed after this prompt
                 att = rec.get("attachment") or {}
                 m = WHISPER_RX.search(str(att.get("content") or att.get("stdout") or "")) \
                     if isinstance(att, dict) and att.get("hookEvent") == "UserPromptSubmit" else None
                 if m and cur is not None:
-                    cur["whispered"] = [p.split(":")[-1] for p in PICK_RX.findall(m.group(3).split("   (")[0])]
-                    cur["whisper_s"] = float(m.group(1))
+                    picks = [p.split(":")[-1] for p in PICK_RX.findall(m.group(3).split("   (")[0])]
+                    if last_kind in (None, "owner"):
+                        cur["whispered"], cur["whisper_s"] = picks, float(m.group(1))
+                    else:                                    # 2026-10-28: it answered a peer's text; before, it overwrote
+                        cur["stray"].append({"kind": last_kind, "n": len(picks),   # the owner's own whisper
+                                             "ts": str(rec.get("timestamp") or "")[:16].replace("T", " ")})
                 continue
             if rec.get("type") == "assistant" and cur is not None and isinstance(content, list):
                 for b in content:
@@ -225,7 +260,8 @@ def build(state: Path, paths, names: set, tokens, write: bool = True, log=None) 
                         "used": used, "observed": sorted(u for u in t.get("observed", ()) if u != M.SELF),
                         "sweep": len(used) > SWEEP_MAX, "excerpt": redact(text[:EXCERPT]),
                         "text": redact(text), "maestro": bool(t.get("maestro")),
-                        "whispered": list(t.get("whispered") or []), "whisper_s": t.get("whisper_s"), "queued": bool(t.get("queued"))})   # v19; queued 2026-10-27
+                        "whispered": list(t.get("whispered") or []), "whisper_s": t.get("whisper_s"), "queued": bool(t.get("queued")),
+                        "stray": list(t.get("stray") or [])})   # v19; queued 2026-10-27; stray 2026-10-28
         new_index[key] = sig
     new_index["_v"] = CACHE_V
     seen, dedup = set(), []                      # a continued session repeats its earlier prompts in a new file
@@ -548,6 +584,10 @@ def reach(rows: list[dict], desc: dict[str, str] | None = None, tokens=None, sin
     ks = sorted(len(picks[id(r)]) for r in lab_w)
     by_kind = {k: [sum(1 for r in lab_w if bool(r.get("queued")) == q and set(r["used"]) & set(picks[id(r)])),
                    sum(1 for r in lab_w if bool(r.get("queued")) == q)] for k, q in (("typed", False), ("mid-turn", True))}
+    by_text = {"owner": [sum(1 for r in wh if r.get("ts", "") < WHISPER_SKIP_LANDED),   # whispers by the text they
+                         sum(1 for r in wh if r.get("ts", "") >= WHISPER_SKIP_LANDED)]}  # answered, before | after
+    for s in (s for r in rs for s in r.get("stray") or []):
+        by_text.setdefault(s["kind"], [0, 0])[s.get("ts", "") >= WHISPER_SKIP_LANDED] += 1
     weeks: dict[str, list[int]] = {}
     for r in lab_w:
         y, m_, d = (int(x) for x in r["ts"][:10].split("-"))
@@ -579,7 +619,8 @@ def reach(rows: list[dict], desc: dict[str, str] | None = None, tokens=None, sin
     return {"since": since, "prompts": len(rs), "whispered": len(wh), "first_whisper": wh[0]["ts"][:10] if wh else None,
             "recent_s_median": rsecs[len(rsecs) // 2] if rsecs else None, "recent_k_median": rks[len(rks) // 2] if rks else None,
             "recent_n": len(recent),
-            "labelled": len(lab), "labelled_whispered": len(lab_w), "by_kind": by_kind, "hit_any": hit_any, "hit_first": hit_first,
+            "labelled": len(lab), "labelled_whispered": len(lab_w), "by_kind": by_kind, "by_text": by_text,
+            "hit_any": hit_any, "hit_first": hit_first,
             "uses": len(uses), "recalled": recalled, "k_median": ks[len(ks) // 2] if ks else 0,
             "distinct_used": len(ucount), "library": len(desc) if desc else None, "uses_total": sum(ucount.values()),
             "top10_share": (top10 / sum(ucount.values())) if ucount else None, "top_used": ucount.most_common(10),
@@ -594,6 +635,10 @@ def render_reach(x: dict) -> str:
     L = [f"REACH (the whisper hook in the real transcripts{since}): {x['prompts']} prompts, {x['whispered']} with a whisper line"
          + (f" (first {x['first_whisper']})" if x.get("first_whisper") else "") + f"; {x['labelled']} labelled, "
          f"{x['labelled_whispered']} of them whispered"]
+    if len(x.get("by_text") or {}) > 1:
+        L.append(f"  BY TEXT (whispers by who wrote the text, before | after the hook's skip landed {WHISPER_SKIP_LANDED} UTC; "
+                 "every row but owner should read 0 after): "
+                 + "; ".join(f"{k} {b} | {a}" for k, (b, a) in sorted(x["by_text"].items(), key=lambda kv: (kv[0] != "owner", -sum(kv[1])))))
     if not x["labelled_whispered"]:
         L.append("  no labelled prompt carries a whisper line yet: nothing to measure (the hook was installed on 2026-10-22; "
                  "transcripts before it have no line)")
@@ -859,6 +904,28 @@ def _selftest() -> bool:
         ok["2026-10-27 reach: BY KIND splits typed from mid-turn; the line is silent with no mid-turn prompt"] = \
             sum(v[1] for v in rc["by_kind"].values()) == rc["labelled_whispered"] and "BY KIND" not in render_reach(rc) \
             and "BY KIND" in render_reach({**rc, "by_kind": {"typed": [1, 1], "mid-turn": [0, 1]}})
+        tw = td / "projects-w" / "p"
+        tw.mkdir(parents=True)
+        (tw / "w.jsonl").write_text("\n".join([
+            user("2026-10-26T10:00:00Z", "explain the latch in plain words please"),
+            whisper("WHISPER (0.30s, FULL: open-ended work (design / invent / explore); 1 by task size): candidates "
+                    "/plain-terms\nNEXT STEP: before any other tool, call the Skill tool with skill \"skill-maestro\""),
+            user("2026-10-26T10:05:00Z", "Another Claude session sent a message: rebuild the index"),
+            json.dumps({**json.loads(whisper("WHISPER (0.30s, QUICK, 4 by task size): /sw-1, /sw-2, /sw-3, /sw-4\n"
+                                             "NEXT STEP: if /sw-1 fits this prompt, call the Skill tool")),
+                        "timestamp": "2026-10-26T10:05:01Z"}),
+            user("2026-10-27T09:00:00Z", "<task-notification><task-id>x</task-id></task-notification>"),
+            json.dumps({**json.loads(whisper("WHISPER (0.30s, SKIP: a plan card names the tests): build from the card; "
+                                             "/sw-5 only if a helper is wanted (call it via the Skill tool).")),
+                        "timestamp": "2026-10-27T09:00:01Z"})]) + "\n", encoding="utf-8")
+        build(td / "state-w", [tw], set(lib.desc), lib.fs._tokens)
+        wrows = rows_of(td / "state-w")
+        bt = reach(wrows, lib.desc, lib.fs._tokens)["by_text"]
+        ok["2026-10-28 reach: a whisper on a peer's text is kept apart (BY TEXT), not laid over the owner's own; "
+           "the FULL / QUICK / SKIP lines (v20.0.7) are read"] = \
+            len(wrows) == 1 and wrows[0]["whispered"] == ["plain-terms"] and wrows[0]["whisper_s"] == 0.3 \
+            and bt == {"owner": [1, 0], "peer message": [1, 0], "task notice": [0, 1]} \
+            and "BY TEXT" in render_reach(reach(wrows, lib.desc, lib.fs._tokens)) and "BY TEXT" not in render_reach(rc)
         ok["secrets and mail addresses are redacted in the cache"] = \
             all("sk-abcdefghijklmnop" not in r["text"] and "me@example.com" not in r["text"] for r in rows)
         s2 = build(state, [tr], set(lib.desc), lib.fs._tokens)

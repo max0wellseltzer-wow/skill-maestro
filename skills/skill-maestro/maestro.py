@@ -213,6 +213,7 @@ MENU_IDEAS = (("A", "FIT", "the conductor's pick: best fit under the no-corner-c
               ("D", "RESEARCH", "two readers and a checker: understand the task, then try to break the answer"),
               ("E", "LOVED", "the user's best-rated skills (their topic metrics) that are in this pool"))
 RRF_K = 60             # reciprocal rank fusion constant (Cormack et al. 2009)
+CAP_K = 3              # the same fusion, sharper, for pick_count's "within half the best" cap: at 60 about 31 meaning-only rows clear half, so the cap never bound (criticism 2; replay 2026-10-28: whispers over 6 names 52/322 -> 1, hits 44 -> 40 of 242, precision 0.040 -> 0.063)
 MEMORY_SIM = 0.25      # word-Jaccard at which a past rated task counts as similar (immune memory, opening book)
 NET_ALPHA, NET_SEEDS = 0.5, 8   # network reading: walk-on probability and how many top hits seed it
 BM25_K1, BM25_B = 1.2, 0.75    # full-text reading (Robertson and Zaragoza 2009)
@@ -571,10 +572,11 @@ def limit_hits(limit: str, name: str, desc: str, tokens) -> list[str]:
 def pick_count(task: str, weighed: list[dict]) -> tuple[int, str]:
     """How many skills this task deserves, 1 to PICKS_MAX (the user: "chooses 1 to 22 different /skills"): two per sentence
     of the ask, one for a task of four words or fewer, never more than the candidates whose fit is at least half
-    the best. The reason is printed with the number."""
+    the best (a row's `cap`, the fusion at CAP_K, when purpose_rank gave one; else its fit). The reason is printed with
+    the number."""
     sents = [x for x in re.split(r"(?<=[.?!;])\s+|\n+", task.strip()) if x.strip()]
     words = len(task.split())
-    eligible = sum(1 for r in weighed if r.get("fit", 0) >= 0.5)
+    eligible = sum(1 for r in weighed if r.get("cap", r.get("fit", 0)) >= 0.5)
     want = 1 if words <= 4 else 2 * max(1, len(sents))
     n = max(1, min(PICKS_MAX, want, max(1, eligible)))
     return n, f"{len(sents)} sentence(s), {words} words -> {want} wanted; {eligible} candidate(s) within reach; chose {n}"
@@ -615,12 +617,14 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
     mean = meaning_rank(ranking_text(task), 120, root, state_dir) or []
     self_ok, _ = self_pick_allowed([n for n, _ in mean[:SELF_TOP]], Path(state_dir or STATE))
     sc: dict[str, float] = {}
+    cap: dict[str, float] = {}                              # the same votes at CAP_K, for pick_count's cap (criticism 2)
     via: dict[str, list] = {}
     for lst, w, tag in (([n for n, _ in mean], WEIGHTS.get("meaning", 3.0), "meaning"), (words, 1.0, "words")):
         for r, n in enumerate(lst, 1):
             if n == SELF and not self_ok:
                 continue
             sc[n] = sc.get(n, 0.0) + w / (RRF_K + r)
+            cap[n] = cap.get(n, 0.0) + w / (CAP_K + r)
             via.setdefault(n, []).append(tag)
     if not sc:
         return []
@@ -628,6 +632,7 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
         ordered = [n for n, _ in sorted(sc.items(), key=lambda x: (-x[1], x[0]))]
         for r, n in enumerate(deliverable_reading(task, ordered, desc), 1):
             sc[n] += WEIGHTS["deliverable"] / (RRF_K + r)
+            cap[n] += WEIGHTS["deliverable"] / (CAP_K + r)
             via[n].append("deliverable")
     if WEIGHTS.get("phase") and state_dir is not None:      # 2026-10-25 (M52): where sessions went next after what this one just used
         try:
@@ -637,13 +642,15 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
                 for r, n in enumerate(P.reading(P.table(P.rows_of(Path(state_dir))), ctx), 1):
                     if n in sc or (desc and n in desc):
                         sc[n] = sc.get(n, 0.0) + WEIGHTS["phase"] / (RRF_K + r)
+                        cap[n] = cap.get(n, 0.0) + WEIGHTS["phase"] / (CAP_K + r)
                         via.setdefault(n, []).append("phase")
         except Exception:  # noqa: BLE001
             pass
-    best = max(sc.values())
-    rows = [{"name": n, "score": round(s * 1000, 3), "fit": s / best, "via": via[n]} for n, s in sc.items()]
+    best, best_cap = max(sc.values()), max(cap.values())
+    rows = [{"name": n, "score": round(s * 1000, 3), "fit": s / best, "cap": cap[n] / best_cap, "via": via[n]}
+            for n, s in sc.items()]
     rows.sort(key=lambda r: (-r["fit"], r["name"]))
-    n, _ = pick_count(task, [r for r in rows if r["fit"] >= 0.5 and "meaning" in r["via"]] or rows)
+    n, _ = pick_count(task, [r for r in rows if "meaning" in r["via"]] or rows)
     return rows[:max(k, n)]
 
 
@@ -3221,6 +3228,160 @@ def triage_note(lib: Library, st: State, task: str, verdict: str, why: str) -> s
     return "\n".join(L)
 
 
+# 2026-10-28 (the user: "more focused on evolving the general situation for some skills it selects and also selecting
+# very specific /skills"; "invent approximately 5 more distinct categories"; then "adding or subtracting numbers of skill
+# categories ... the best human coding work practices and ... purposefully distinct from human coding conventions ...
+# at least two skills at the ends of 1 metric"). LANES label each pick by the job it does, and LANE PAIRS name, per
+# lane, two skills at the two ends of that lane's one metric. Labels and pairs only: they never move a pick, so
+# fit-first and every eval number are untouched. Add or remove lanes with `maestro.py lanes add|remove`.
+AXES = {  # metric -> (low end, high end)
+    "reach": ("nearest the ask", "farthest still in the lane"),
+    "form": ("runs a script", "a way of thinking"),
+}
+LANES = (  # (lane, what it does, stems in the skill's name or first sentence, axis); the first lane that matches wins
+    ("guard", "keeps the work safe: risk, limits, terms, damage",
+     ("guard", "risk", "safe", "terms", "limit", "secret", "blast", "danger", "permission", "consent", "deny"), "form"),
+    ("proof", "proves or falsifies what the work claims",
+     ("test", "verif", "proof", "prove", "falsif", "null", "evidence", "receipt", "audit", "check", "calibrat"), "form"),
+    ("craft", "the best human coding practice: review, simplify, refactor, small steps",
+     ("review", "simplif", "refactor", "clean", "mise", "lint", "contract", "schema", "diff", "precommit", "pair"), "form"),
+    ("alien", "purposefully unlike human coding convention: swarms, evolution, annealing, dreams",
+     ("swarm", "stigmergy", "anneal", "evolv", "evolution", "mutat", "physarum", "quorum", "dream", "ouroboros",
+      "chimera", "bud", "egg", "alien", "spore", "symbio", "metamorph", "regen", "graft", "reassort"), "reach"),
+    ("memory", "makes the next session smarter: records, rules, lessons",
+     ("memory", "ledger", "history", "lesson", "rule", "record", "brain", "transcript", "lineage", "log"), "reach"),
+    ("finisher", "lands and closes the work: commit, report, handoff",
+     ("land", "commit", "finish", "report", "handoff", "close", "push", "ship", "done", "open-steps"), "form"),
+    ("big picture", "evolves the whole situation, not just this task",
+     ("view", "panorama", "eye", "long", "strategy", "situation", "horizon", "future", "whole", "map"), "reach"),
+    ("spark", "a distant field's idea to invent with",
+     ("ist", "engineer", "metaphor", "lens", "analog", "nature", "wander", "random", "cross-breed"), "reach"),
+)
+LANE_PRECISE = ("precise", "fits the exact ask", (), "reach")
+
+
+def lanes_file(state: Path | None = None) -> Path:
+    return Path(state or STATE) / "lanes.json"
+
+
+def active_lanes(state: Path | None = None) -> list[tuple]:
+    """The built-in LANES, minus the ones the user removed, plus the ones the user added (`<state>/lanes.json`:
+    {"add": [{"lane", "does", "stems", "axis"}], "remove": [names]}). An added lane with a built-in's name replaces it."""
+    try:
+        cfg = json.loads(lanes_file(state).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    gone = set(cfg.get("remove", []))
+    added = [(x["lane"], x.get("does", ""), tuple(x.get("stems", ())), x.get("axis") if x.get("axis") in AXES
+              else "reach") for x in cfg.get("add", []) if x.get("lane")]
+    mine = {x[0] for x in added}
+    return added + [x for x in LANES if x[0] not in gone | mine]
+
+
+def _lane_words(name: str, when: str) -> list[str]:
+    t = (name + " " + when).lower()                       # whole hyphenated names and their parts both count
+    return re.findall(r"[a-z0-9-]+", t) + re.findall(r"[a-z0-9]+", t)
+
+
+def _in_lane(words: list[str], stems: tuple) -> bool:
+    return any(w.startswith(st) or w.endswith(st) for w in words for st in stems)
+
+
+def lane_of(c: dict, rank: int, best_fit: float, lanes: list[tuple] | None = None) -> str:
+    """The lane of one pick. The top pick, and any pick whose fit is within 0.1 of the best, is PRECISE (the exact
+    task); the rest take the first lane whose stems appear in the name or first sentence; else precise."""
+    if rank == 1 or float(c.get("fit", 0) or 0) >= best_fit - 0.1:
+        return LANE_PRECISE[0]
+    words = _lane_words(c["name"], c.get("when", ""))
+    for lane, _, stems, _ax in (active_lanes() if lanes is None else lanes):
+        if _in_lane(words, stems):
+            return lane
+    return LANE_PRECISE[0]
+
+
+def lanes_line(chosen: list[dict], lanes: list[tuple] | None = None) -> str:
+    """One line grouping the picks by lane, precise first."""
+    lanes = active_lanes() if lanes is None else lanes
+    best = max((float(c.get("fit", 0) or 0) for c in chosen), default=0.0)
+    by: dict[str, list[str]] = {}
+    for i, c in enumerate(chosen, 1):
+        by.setdefault(lane_of(c, i, best, lanes), []).append(c["name"])
+    order = [LANE_PRECISE[0]] + [x[0] for x in lanes]
+    return "LANES " + " | ".join(f"{k}: {', '.join(by[k])}" for k in order if k in by)
+
+
+def lane_pairs(ranked: list[dict], lanes: list[tuple] | None = None, depth: int = 150) -> list[dict]:
+    """Per lane, two skills at the two ends of the lane's one metric, from the task's ranked candidates (best first).
+    reach: the lane's nearest member and its farthest within `depth`; form: the nearest with a script and the nearest
+    without one (else nearest and farthest). precise pairs the first two ranked. Fewer than two members: no pair."""
+    lanes = active_lanes() if lanes is None else lanes
+    rows = [r for r in ranked[:depth] if r.get("name")]
+    out = []
+    if len(rows) >= 2:
+        out.append({"lane": "precise", "axis": "reach", "ends": [rows[0]["name"], rows[1]["name"]]})
+    for lane, _, stems, axis in lanes:
+        mem = [r for r in rows if _in_lane(_lane_words(r["name"], ""), stems)]   # the name says the lane best
+        if len(mem) < 2:
+            mem += [r for r in rows if r not in mem and _in_lane(_lane_words(r["name"], r.get("when", "")), stems)]
+        ends: list = []
+        if axis == "form":
+            t = next((r["name"] for r in mem if r.get("tool")), None)
+            d = next((r["name"] for r in mem if not r.get("tool")), None)
+            ends = [t, d] if t and d else []
+        if not ends and len(mem) >= 2:
+            ends = [mem[0]["name"], mem[-1]["name"]]
+            axis = "reach"
+        if ends and ends[0] != ends[1]:
+            out.append({"lane": lane, "axis": axis, "ends": ends})
+    return out
+
+
+def lane_pair_lines(pairs: list[dict]) -> list[str]:
+    if not pairs:
+        return []
+    return ["LANE PAIRS (two ends of one metric per lane; try both, keep what fits):"] + [
+        f"  {p['lane']:<11} {p['axis']} ({AXES[p['axis']][0]} <-> {AXES[p['axis']][1]}): "
+        f"{p['ends'][0]} <-> {p['ends'][1]}" for p in pairs]
+
+
+def lanes_cmd(argv: list[str], state: Path | None = None) -> int:
+    """`lanes` lists the active lanes; `lanes add NAME "does" stem1,stem2 [--axis reach|form]`; `lanes remove NAME`;
+    `lanes reset` restores the built-ins."""
+    f = lanes_file(state)
+    try:
+        cfg = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    cfg.setdefault("add", [])
+    cfg.setdefault("remove", [])
+    sub = argv[0] if argv else "list"
+    if sub == "add" and len(argv) >= 4:
+        axis = argv[argv.index("--axis") + 1] if "--axis" in argv else "reach"
+        if axis not in AXES:
+            print(f"axis must be one of {', '.join(AXES)}")
+            return 2
+        cfg["add"] = [x for x in cfg["add"] if x.get("lane") != argv[1]] + [
+            {"lane": argv[1], "does": argv[2], "stems": [x for x in argv[3].split(",") if x], "axis": axis}]
+        cfg["remove"] = [x for x in cfg["remove"] if x != argv[1]]
+    elif sub == "remove" and len(argv) >= 2:
+        cfg["add"] = [x for x in cfg["add"] if x.get("lane") != argv[1]]
+        cfg["remove"] = sorted(set(cfg["remove"]) | {argv[1]})
+    elif sub == "reset":
+        cfg = {"add": [], "remove": []}
+    elif sub != "list":
+        print(lanes_cmd.__doc__)
+        return 2
+    if sub != "list":
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+    act = active_lanes(state)
+    print(f"{len(act) + 1} lanes (precise is always on):")
+    for lane, does, stems, axis in [LANE_PRECISE, *act]:
+        print(f"  {lane:<11} [{axis}: {AXES[axis][0]} <-> {AXES[axis][1]}] {does}"
+              + (f"  stems: {','.join(stems[:6])}" if stems else ""))
+    return 0
+
+
 def render_brief(sheet: dict) -> str:
     """The default sheet (v11): what is needed to act, in about 20 lines. Every detail is still in `--full`."""
     if not sheet.get("concepts") and not sheet.get("keywords_only"):
@@ -3243,9 +3404,13 @@ def render_brief(sheet: dict) -> str:
                     "English, or as --concepts (Claude can translate it). " if foreign else "")
                  + "If no skill does this job, `maestro.py newskill <name> \"<the job>\"` starts one.")
     tested = load_tested()
+    if sheet["chosen"]:
+        L.append(lanes_line(sheet["chosen"]))
+        L += lane_pair_lines(sheet.get("lane_pairs") or [])
+    best = max((float(c.get("fit", 0) or 0) for c in sheet["chosen"]), default=0.0)
     for i, c in enumerate(sheet["chosen"], 1):
-        why = (c.get("role_added") and "verify role") or (c.get("cover") and f"cover: {c['cover'][:40]}") \
-            or c.get("via") or c.get("when", "")
+        why = f"<{lane_of(c, i, best)}> " + ((c.get("role_added") and "verify role") or (c.get("cover") and f"cover: {c['cover'][:40]}") \
+            or c.get("via") or c.get("when", ""))
         probe = (c.get("card") or {}).get("probe")
         cmd = c.get("first_cmd") or (probe and probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent))) \
             or f"invoke /{c['name']} (the Skill tool; it has no script of its own)"   # built-ins, plugins, guides
@@ -3675,7 +3840,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
                "words": sorted(words), "chosen": [c["name"] for c in chosen], "notes": notes, "pool": len(pool)})
     st.registry.write_text(json.dumps(snap, indent=0, sort_keys=True), encoding="utf-8")
     pool_lines = [f"{r['name']} [{'T' if r.get('tool') else 'D'}] {lib.desc.get(r['name'], '')[:110]}" for r in pool]
-    return {"finder_top": finder_top, "run": run_id, "task": task, "pool": len(pool), "pool_lines": pool_lines, "chosen": chosen, "notes": notes,
+    return {"lane_pairs": lane_pairs(ranked), "finder_top": finder_top, "run": run_id, "task": task, "pool": len(pool), "pool_lines": pool_lines, "chosen": chosen, "notes": notes,
             "library": news, "families": sorted({c["family"] for c in chosen}), "stay_inside": stay_inside(task),
             "readings": [k for k in [*var, "body", "network"] if not k.startswith("_") and WEIGHTS.get(k, 1.0) > 0
                          and (k in var or k in ("body", "network"))],
@@ -3771,6 +3936,9 @@ def render(sheet: dict) -> str:
                 f" [unknown tag: {','.join(c['unknown'])}]" if c["unknown"] else "") + (
                 " [tags inferred from the words]" if c.get("inferred") else "")
             L.append(f"  {lab}: {c['text'][:60]}  -> " + ", ".join(f"{n} {s:.2f}" for n, s in tops))
+    if sheet["chosen"]:
+        L.append(lanes_line(sheet["chosen"]))
+        L += lane_pair_lines(sheet.get("lane_pairs") or [])
     L.append("rank skill                          total  fit   use   fasc  fav  [T/D] lines grade why")
     for i, c in enumerate(sheet["chosen"], 1):
         why = (c.get("role_added") and "VERIFY role, added") or (c.get("cover") and f"COVER: {c['cover']}") \
@@ -4496,6 +4664,14 @@ def _selftest() -> bool:
         ok.append(pick_count("fix it", w)[0] == 1 and pick_count("one plain sentence about a task", w)[0] == 2
                   and pick_count(". ".join(["sentence"] * 15) + ".", w)[0] == PICKS_MAX
                   and pick_count("alpha one. beta two. gamma three.", w[:3])[0] == 3)   # 6 wanted, 3 within reach
+        with _tf.TemporaryDirectory() as _tdc:              # criticism 2: the cap binds; at RRF_K all 30 meaning rows clear half
+            _mr, _ask = globals()["meaning_rank"], "Audit the plan. List every risk. Write the fixes."
+            globals()["meaning_rank"] = lambda *a, **k: [(f"m{i}", 0.9 - i * 0.001) for i in range(30)]
+            try:
+                _rows = purpose_rank(lambda q, d: [{"name": "m0"}], _ask, state_dir=Path(_tdc), phase=[])
+            finally:
+                globals()["meaning_rank"] = _mr
+        ok.append(pick_count(_ask, _rows)[0] == 3 and _rows[0]["cap"] == 1.0)      # m0 (both), m1 0.6, m2 0.5; m3 0.43
         ok.append(_opt(["try", "r", "s", "--", "python", "x.py", "--state", "Q"], "--state") is None
                   and _positional(["try", "r", "s", "--state", "S", "--", "python", "x.py"]) == ["try", "r", "s"])
         ok.append(task_kinds("write a limerick about my trading bot, make it fun")[0][0] in ("CREATE", "WRITE", "PLAY")
@@ -5256,6 +5432,8 @@ def main(argv: list[str]) -> int:
                 print(f"COMPARE {a['code']} ({a.get('maestro@3')}) vs {b['code']} ({b.get('maestro@3')}): "
                       + (f"only-first {mc['a_only']}, only-second {mc['b_only']}, McNemar p {mc['p']}: {mc['verdict']}"
                          if mc.get("ok") else mc.get("why", "")))
+    elif cmd == "lanes":                                     # 2026-10-28: the pick lanes and their two-ended pairs
+        return lanes_cmd(argv[1:])
     elif cmd == "modes":                                     # 2026-10-24: the modes the Maestro applies to itself; v20.0.10: yours too
         D = _load(HERE / "modes.py", "modes")
         sub = pos[1] if len(pos) > 1 else "list"
