@@ -118,6 +118,15 @@ def sibling_cmd(roots: list[Path], skill: str, script: str, args: str) -> str:
     return f'{PY} "{f.as_posix()}" {args}' if f else ""
 
 
+def with_user_library(root: Path, extra: list[Path]) -> list[Path]:
+    """v20.1.2 (the strangers' table, row 7c): installed as a plugin, the root is the pack's skills folder, and the
+    user's own ~/.claude/skills joined only when the cwd was the home folder. A pack root now always adds it, once."""
+    have = {Path(p).resolve() for p in (root, *extra)}
+    if (root.parent / ".claude-plugin" / "plugin.json").is_file() and USER_LIB.is_dir() and USER_LIB.resolve() not in have:
+        return [*extra, USER_LIB]
+    return extra
+
+
 if not has_finder(ROOT) and has_finder(USER_LIB):
     ROOT = USER_LIB    # a project mirror (the repo's .claude/skills) has no skill-finder: use the user library's
 STATE = Path(os.environ.get("MAESTRO_STATE", CLAUDE_HOME / "skill-maestro-state"))   # v20.0.19: as meaning.py reads it
@@ -1029,7 +1038,11 @@ class Library:
         self.skills = []
         self.md: dict[str, Path] = {}        # every skill's SKILL.md, by the name Claude Code runs it under
         self.source: dict[str, str] = {}     # "" for the libraries above, else plugin / synced
-        for r, prefix, src in [(r, "", "") for r in self.roots] + (other_skill_roots() if self.everything else []):
+        self.invoke: dict[str, str] = {}     # v20.1.2: the name Claude Code runs a root skill by, when it is not its own
+        other = other_skill_roots() if self.everything else []
+        mine = {r.resolve() for r in self.roots}       # v20.1.2: installed as a plugin, the pack's skills folder is the
+        as_plugin = {d.resolve(): pre for d, pre, _ in other if d.resolve() in mine}   # root: read it once, not twice
+        for r, prefix, src in [(r, "", "") for r in self.roots] + [o for o in other if o[0].resolve() not in mine]:
             dirs = sorted(p for p in r.iterdir() if p.is_dir() and (p / "SKILL.md").exists())   # find_skill.load's order
             for d, s in zip(dirs, _lib_load(self.fs, r)):          # v15: the prepared index (index.py)
                 if prefix:
@@ -1041,6 +1054,8 @@ class Library:
                     self.skills.append(s)
                     self.md[s["name"]] = d / "SKILL.md"
                     self.source[s["name"]] = src
+                    if r.resolve() in as_plugin:
+                        self.invoke[s["name"]] = as_plugin[r.resolve()] + s["name"]
         if self.everything:                   # Claude Code's built-in skills: not on disk, a snapshot in builtins.json
             for n, d in builtin_skills().items():
                 if n not in seen:
@@ -3382,6 +3397,13 @@ def lanes_cmd(argv: list[str], state: Path | None = None) -> int:
     return 0
 
 
+def unique_needed(needed: list[dict]) -> list[dict]:
+    """v20.1.2: inferred concepts all carry the task's own text (one per tag), so the same NEEDED line printed once
+    per tag. One line per text, the first kept, in order."""
+    seen: set[str] = set()
+    return [x for x in needed if not (x["concept"] in seen or seen.add(x["concept"]))]
+
+
 def render_brief(sheet: dict) -> str:
     """The default sheet (v11): what is needed to act, in about 20 lines. Every detail is still in `--full`."""
     if not sheet.get("concepts") and not sheet.get("keywords_only"):
@@ -3413,7 +3435,7 @@ def render_brief(sheet: dict) -> str:
             or c.get("via") or c.get("when", ""))
         probe = (c.get("card") or {}).get("probe")
         cmd = c.get("first_cmd") or (probe and probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent))) \
-            or f"invoke /{c['name']} (the Skill tool; it has no script of its own)"   # built-ins, plugins, guides
+            or f"invoke /{c.get('invoke') or c['name']} (the Skill tool; it has no script of its own)"   # built-ins, plugins, guides
         L.append(f"  {i}. {c['name']:<28} {('[' + c['ballot'] + '] ') if c.get('ballot') else ''}{c.get('grade', 'S3')} "
                  f"{why[:60]}")
         L.append(f"       run: {cmd[:110]}")
@@ -3427,7 +3449,7 @@ def render_brief(sheet: dict) -> str:
     others = [n for n in sheet.get("finder_top", []) if n not in {c["name"] for c in sheet["chosen"]}]
     if others:                                       # held-out: the finder's first pick was right more often
         L.append("FINDER ALSO SAYS (judge these too): " + ", ".join(others))
-    for x in sheet.get("needed", [])[:3]:
+    for x in unique_needed(sheet.get("needed", []))[:3]:
         L.append(f"NEEDED: '{x['concept'][:60]}' (best {x['best']} {x['score']:.2f})")
     if sheet.get("spark"):
         L.append("SPARK (one to invent with): " + ", ".join(f"{s['op']}={s['members'][0]}" for s in sheet["spark"]))
@@ -3775,6 +3797,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
         c["kind_flag"] = kind_mismatch(c["name"], lib.desc.get(c["name"], ""), task) if KIND_FLAG_SHOWN else None
         c["max_types"] = ov.get(c["name"]) == "user-invocable-only"
         c["source"] = lib.source.get(c["name"], "")
+        c["invoke"] = getattr(lib, "invoke", {}).get(c["name"], c["name"])
         c["switch_on"] = switch_on(c["name"], c["source"], ov, plug)
     plan_ctx = context(words | {w.upper() for w in re.findall(r"gt\d+", task.lower())}, lib.fs._tokens)
     phased = agenda(chosen, weigh(pool, stats_now, st.favourites()), lib.desc, phases)
@@ -4026,7 +4049,7 @@ def render(sheet: dict) -> str:
         if c["analogy"]:
             mine = f"  -> {c['mine']}" if c.get("mine") else ""   # v20.0.16: set by score() only when sweep.py exists
             L.append(f"ANALOGY to mine: '{c['text'][:70]}'{mine}  (what does the job there, and how?)")
-    for x in sheet.get("needed", []):
+    for x in unique_needed(sheet.get("needed", [])):
         L.append(f"NEEDED (no skill does this well; best {x['best']} {x['score']:.2f}): '{x['concept'][:70]}'  "
                  f"seed: {x['seed']}")
     L.append(f"FIT CHECK (first, before trusting any pick): name the task's exact subject (file, section, data), then run "
@@ -4522,7 +4545,8 @@ def _selftest() -> bool:
             "chosen": [{"name": f"s{i}", "when": "w" * 200, "first_cmd": f"python s{i}.py", "skill_md": "nope",
                         "grade": "S3", "ballot": "words"} for i in range(8)],
             "context": ["first phase work can move: 3", "plan card GT42 (phase 6): far", "plan card GT9 (phase 3): near"],
-            "needed": [{"concept": "c" * 90, "best": "b", "score": 0.1}] * 5, "debt": ["a"], "ponder_debt": ["b"],
+            "needed": [{"concept": "c" * 89 + str(i), "best": "b", "score": 0.1} for i in range(5)],   # v20.1.2: distinct, or the dedupe hides the cap
+            "debt": ["a"], "ponder_debt": ["b"],
             "spark": [{"op": "analogize", "members": ["kingdom-sweep"]}], "stay_inside": ["only GT9"], "finder_top": ["s0", "zz"]}
     br = render_brief(fake)
     ok.append(len(br.splitlines()) <= 30 and br.splitlines()[-1].startswith("COST sheet ~") and "r0" in br
@@ -4612,6 +4636,26 @@ def _selftest() -> bool:
         roots = {(d.name, pre, src) for d, pre, src in other_skill_roots(h)}
         ok.append(roots == {("org", "anthropic-skills:", "synced"), ("skills", "fin:", "plugin fin"),
                             ("extra", "fin:", "plugin fin")})                # synced, default and manifest paths
+        pk, h3 = t / "pack", t / "home3"                                     # v20.1.2: the Maestro installed as a plugin
+        (pk / ".claude-plugin").mkdir(parents=True)
+        (pk / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "pk"}), encoding="utf-8")
+        (pk / "skills" / "one").mkdir(parents=True)
+        (pk / "skills" / "one" / "SKILL.md").write_text("---\nname: one\ndescription: count the gizmos\n---\n", encoding="utf-8")
+        (h3 / "plugins").mkdir(parents=True)
+        (h3 / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"pk@m": [{"installPath": str(pk)}]}}),
+                                                               encoding="utf-8")
+        (h3 / "skills").mkdir()
+        _home, _ulib = globals()["CLAUDE_HOME"], globals()["USER_LIB"]
+        try:
+            globals()["CLAUDE_HOME"], globals()["USER_LIB"] = h3, h3 / "skills"
+            L3 = Library(pk / "skills", everything=True)
+            ulib = (with_user_library(pk / "skills", []), with_user_library(pk / "skills", [h3 / "skills"]),
+                    with_user_library(h3 / "plugins", []))
+        finally:
+            globals()["CLAUDE_HOME"], globals()["USER_LIB"] = _home, _ulib
+        ok.append(ulib == ([h3 / "skills"], [h3 / "skills"], []))         # row 7c: the user's skills join a pack root once
+        ok.append("one" in L3.desc and "pk:one" not in L3.desc and L3.invoke.get("one") == "pk:one"
+                  and [x["concept"] for x in unique_needed([{"concept": "a"}, {"concept": "b"}, {"concept": "a"}])] == ["a", "b"])
         lib_dir = t / "lib"                                                  # v12: standalone, health, built-ins
         for n, body in (("alpha-tool", "print('PASS')\nimport sys; sys.exit(0)\n"), ("beta-broken", "import sys; sys.exit(1)\n")):
             (lib_dir / n).mkdir(parents=True)
@@ -4911,6 +4955,7 @@ def main(argv: list[str]) -> int:
     st.shared = CLOUD and shared is not None and not _opt(argv, "--state")
     if "--no-ledger" in flags or __import__("os").environ.get("MAESTRO_NO_LEDGER") == "1":   # v14: privacy
         st.append = lambda row: None                   # nothing is written; history already there is still read
+    extra = with_user_library(root, extra)
     lib = Library(root, tuple(extra), everything="--custom-only" not in flags)
     lib.overrides, lib.plugins = skill_overrides(project), plugin_states(project)
     lib.project = project

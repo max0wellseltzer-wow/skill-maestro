@@ -494,6 +494,9 @@ def start_server(state: Path | None = None) -> bool:
         return False
 
 
+WAITED_OUT: set[str] = set()   # v20.1.2: states whose helper wait ran out in this process
+
+
 def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | None = None, wait: float = 0.0,
                   ask_timeout: float = 5.0):
     """From a Python without fastembed: the resident helper's answer; it is started when it is not up. With wait > 0
@@ -502,12 +505,18 @@ def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | Non
     that used to follow re-embedded a cold library inside the score (eight minutes on the owner's PC: the selfcheck
     tour's two timeouts); a helper that is up but busy answers the next score instead. v20.0.7: `ask_timeout` is how
     long one ask of a running helper may take (the whisper hook passes about a second: a helper busy with a score
-    accepted its connection and sat on it for the full 5 s, which held every prompt of the owner's session)."""
+    accepted its connection and sat on it for the full 5 s, which held every prompt of the owner's session).
+    v20.1.2: no wait when no helper can come (no maestro-meaning venv on this PC: a stranger's score polled 90 s at each
+    of its six meaning readings, 540 of its 545 seconds), and one wait per run and state: a wait that ran out once is not
+    sat through again by the same process (the next readings ask once and go on)."""
     ask = {"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}
     r = ask_server(ask, timeout=ask_timeout, state=state)
     if r:
         LAST.update(r.get("last") or {})
         return [tuple(x) for x in r["r"][0]]
+    key = str(state or STATE)
+    if not VENV_PY.is_file() or key in WAITED_OUT:
+        return None
     start_server(state)
     t0 = time.time()
     while time.time() - t0 < wait:
@@ -516,6 +525,8 @@ def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | Non
         if r:
             LAST.update(r.get("last") or {})
             return [tuple(x) for x in r["r"][0]]
+    if wait > 0:
+        WAITED_OUT.add(key)
     return None
 
 
@@ -661,7 +672,7 @@ def _selftest() -> bool:
     # v20.0.5: a helper that is up but busy accepts the connection and handshakes only when it gets to it. A listener
     # that never accepts plays that helper; the helper record names this process so no real helper is started.
     import socket
-    global meaning_rank_subprocess
+    global meaning_rank_subprocess, VENV_PY
     with tempfile.TemporaryDirectory() as td:
         st = Path(td)
         srv = socket.socket()
@@ -674,17 +685,35 @@ def _selftest() -> bool:
         a = ask_server({"op": "ping"}, timeout=1.0, state=st)
         t_ask = time.time() - t0
         ok["ask_server: a helper that never answers costs the timeout, not forever"] = a is None and t_ask < 4.0
-        saved_sub, calls = meaning_rank_subprocess, []
+        saved_sub, calls, saved_py = meaning_rank_subprocess, [], VENV_PY
         meaning_rank_subprocess = lambda *a, **kw: calls.append(1)   # noqa: E731
+        VENV_PY = Path(sys.executable)     # a venv that is there (the lock above keeps start_server from starting one)
         try:
+            rank_anywhere("where will it hail", 3, ROOT, st, wait=0.0, ask_timeout=0.5)   # the hook's ask: no wait
+            hook_marked = str(st) in WAITED_OUT
             t0 = time.time()
             r = rank_anywhere("where will it rain", 3, ROOT, st, wait=1.5)
             t_rank = time.time() - t0
+            t0 = time.time()
+            r2 = rank_anywhere("where will it snow", 3, ROOT, st, wait=30.0, ask_timeout=0.5)
+            t_again = time.time() - t0
         finally:
-            meaning_rank_subprocess = saved_sub
+            meaning_rank_subprocess, VENV_PY = saved_sub, saved_py
         ok["rank_anywhere: when the wait runs out the reading is None at once, and no one-shot run follows"] = (
             r is None and t_rank < 12.0 and not calls)
+        ok["rank_anywhere v20.1.2: a wait that ran out is not sat through again in the same run (a no-wait ask marks nothing)"] = (
+            r2 is None and t_again < 5.0 and str(st) in WAITED_OUT and not hook_marked)
         srv.close()
+    with tempfile.TemporaryDirectory() as td:    # v20.1.2: a PC with no maestro-meaning venv (a stranger's)
+        saved_py, VENV_PY = VENV_PY, Path(td) / "no-venv" / "python.exe"
+        try:
+            t0 = time.time()
+            r = rank_anywhere("where will it rain", 3, ROOT, Path(td), wait=30.0, ask_timeout=0.5)
+            t_none = time.time() - t0
+        finally:
+            VENV_PY = saved_py
+        ok["rank_anywhere v20.1.2: with no meaning venv on the PC the reading is None at once, no wait"] = (
+            r is None and t_none < 3.0 and str(Path(td)) not in WAITED_OUT)
     bad = [k for k, v in ok.items() if not v]
     print(f"meaning selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad
