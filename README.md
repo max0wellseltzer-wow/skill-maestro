@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20.1.3)
+# skill-maestro (Claude Code plugin package, v20.1.4)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard
@@ -33,6 +33,12 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 
 If a `/plugin update` seems to change nothing, the plugin cache kept the old copy: remove the package's folder under
 `~/.claude/plugins/cache/` and install again. A by-hand copy has no cache.
+
+To leave: `/plugin uninstall skill-maestro@skill-maestro`, then `/plugin marketplace remove skill-maestro`. That
+removes the package, not your history: `~/.claude/skill-maestro-state/` (its `ledger.jsonl` holds every task you
+scored) stays until you delete it, and the old versions in `~/.claude/plugins/cache/skill-maestro/` stay marked
+orphaned. Delete both folders to leave nothing behind. A by-hand copy: delete `~/.claude/skills/skill-maestro/` and
+the state folder.
 
 ## Trust: what this package does on your machine
 
