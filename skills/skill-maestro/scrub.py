@@ -9,8 +9,8 @@ so the module needs no editing when someone else publishes their own survey:
     <home>/AppData/Local/Temp/claude                              -> <tmp>
     <home>/.claude/skills  /  <home>/.claude  /  <home>/venvs       -> ~/.claude/skills  /  ~/.claude  /  ~/venvs
     <home>  (C:\\Users\\name, C:/Users/name, /c/Users/name)         -> ~
-    each workspace root (MAESTRO_SCRUB_ROOTS, default C:/Autotrade)  -> <workspace>
-    the project slug Claude Code derives from the home folder        -> C--workspace
+    each workspace root (MAESTRO_SCRUB_ROOTS, else every folder Claude Code was run in) -> <workspace>
+    the project slug Claude Code derives from the home or a root     -> C--workspace
 
 `maestro.py survey build` runs every row through `scrub_row` as it writes them (v20.0.3), so a fresh survey is clean.
 This file's own command is the full pass over an existing survey:
@@ -20,8 +20,10 @@ This file's own command is the full pass over an existing survey:
     python scrub.py [FILE] --write      rewrite in place (LF line ends; every line stays valid JSON)
     python scrub.py --selftest
 
-The owner's name (the home folder's name, or MAESTRO_SCRUB_OWNER) goes too, as a whole word and case-sensitive:
-"whenever Owner asks" -> "whenever the user asks", "Owner's call" -> "the user's call" (the owner's ruling, 2026-10-25:
+The owner's name (the home folder's name, or MAESTRO_SCRUB_OWNER) goes too, as a whole word and case-sensitive
+(a lower-case login is matched capitalized; a generic home name such as home, user or admin names no one and is
+left alone):
+"whenever Ann asks" -> "whenever the user asks", "Ann's call" -> "the user's call" (the owner's ruling, 2026-10-25:
 "switch out every instance of my name for the word user"). Lower-case words, handles and MAX_* names are not touched.
 The dry run counts what is left under `<the word NAME>` so a leftover is visible, not hidden.
 """
@@ -50,21 +52,107 @@ def _path_rx(p: str) -> str:
         parts = [re.escape(x) for x in rest.split("/") if x]
         body = SEP.join(parts)
         return rf"(?:[{drive.upper()}{drive.lower()}]:{SEP}|/{drive.lower()}/){body}"
-    return SEP.join(re.escape(x) for x in p.split("/") if x)
+    body = SEP.join(re.escape(x) for x in p.split("/") if x)
+    return SEP + body if p.startswith("/") else body      # v20.1.6: /home/name/x -> ~/x, not /~/x
+
+
+# a home folder with one of these names says nothing about its owner (v20.1.6: a home named "home" turned every
+# "home" in the survey into "the user")
+GENERIC_HOMES = {"home", "user", "users", "admin", "administrator", "owner", "root", "default", "guest", "public",
+                 "runner", "test", "dev", "app", "node", "ubuntu", "vagrant", "codespace", "codespaces", "workspace"}
+
+
+def owner_of(home: Path) -> str | None:
+    """The owner's name as people write it, from the home folder's name: None for a generic name (GENERIC_HOMES) or
+    one under 3 letters, so no ordinary word is replaced; a lower-case login is matched capitalized (max -> Max)."""
+    name = Path(home).name.strip()
+    if len(name) < 3 or name.lower() in GENERIC_HOMES:
+        return None
+    return name[0].upper() + name[1:] if name.islower() else name
+
+
+def _key(p) -> str:
+    return str(p).replace("\\", "/").rstrip("/").lower()
+
+
+def slug_of(p) -> str:
+    """The name Claude Code gives a project folder: every character that is not a letter or a digit becomes '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(p))
+
+
+def _decode_slug(slug: str) -> Path | None:
+    """A Claude Code project folder name back to the folder it names, when that folder exists: C--Work-my-app ->
+    C:/Work/my-app or C:/Work/my_app, whichever is on disk (each level's names are compared in slug form)."""
+    m = re.match(r"^([A-Za-z])--(.+)$", slug)
+    if m:
+        base, rest = Path(f"{m.group(1).upper()}:/"), m.group(2)
+    elif slug.startswith("-") and len(slug) > 1:
+        base, rest = Path("/"), slug[1:]
+    else:
+        return None
+
+    def walk(d: Path, rest: str) -> Path | None:
+        if not rest:
+            return d
+        try:
+            with os.scandir(d) as it:
+                kids = [e.name for e in it if e.is_dir()]
+        except OSError:
+            return None
+        for name in kids:
+            e = slug_of(name)
+            if rest == e or rest.startswith(e + "-"):
+                got = walk(d / name, rest[len(e) + 1:])
+                if got:
+                    return got
+        return None
+    return walk(base, rest)
+
+
+def workspace_roots(home: Path, tmp: Path) -> list[str]:
+    """The folders Claude Code has been run in on this machine (the names under ~/.claude/projects, decoded), except
+    the home folder, anything inside it or above it, and the temp folder (they have their own rules); nested ones
+    fold into the outer one. v20.1.6: was one fixed path, the owner's own workspace."""
+    proj = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path(home) / ".claude") / "projects"
+    try:
+        names = sorted(p.name for p in proj.iterdir() if p.is_dir())
+    except OSError:
+        return []
+    fenced = [_key(home), _key(tmp)]
+    inside = [slug_of(home), slug_of(tmp)]
+    found: list[str] = []
+    for n in names:
+        if any(n == x or n.startswith(x + "-") for x in inside):      # the home, the temp folder or inside them
+            continue
+        d = _decode_slug(n)
+        if d is None or len(d.parts) < 2:
+            continue
+        k = _key(d)
+        if any(k == f or k.startswith(f + "/") or f.startswith(k + "/") for f in fenced):
+            continue
+        found.append(str(d).replace("\\", "/"))
+    found.sort(key=len)
+    out: list[str] = []
+    for r in found:
+        if not any(_key(r) == _key(o) or _key(r).startswith(_key(o) + "/") for o in out):
+            out.append(r)
+    return out
 
 
 def build_rules(home: Path | None = None, tmp: Path | None = None, roots: list[str] | None = None,
                 owner: str | None = None) -> list[tuple[re.Pattern, str]]:
     """The rules for THIS machine, most specific first. `roots` are the workspace folders (default from
-    MAESTRO_SCRUB_ROOTS, `;`-separated, else C:/Autotrade); `owner` is the name to turn into "the user" (default
-    MAESTRO_SCRUB_OWNER, else the home folder's name)."""
+    MAESTRO_SCRUB_ROOTS, `;`-separated, else the folders Claude Code has been run in: workspace_roots); `owner` is
+    the name to turn into "the user" (default MAESTRO_SCRUB_OWNER, else owner_of(home); "" turns it off)."""
     home = Path(home or Path.home())
     tmp = Path(tmp or tempfile.gettempdir())
     if roots is None:
-        roots = [r for r in os.environ.get("MAESTRO_SCRUB_ROOTS", "C:/Autotrade").split(";") if r.strip()]
+        env = os.environ.get("MAESTRO_SCRUB_ROOTS")
+        roots = [r for r in env.split(";") if r.strip()] if env is not None else workspace_roots(home, tmp)
     if owner is None:
-        owner = os.environ.get("MAESTRO_SCRUB_OWNER") or home.name
-    h = _path_rx(str(home))
+        owner = os.environ.get("MAESTRO_SCRUB_OWNER") or owner_of(home)
+    end = r"(?![A-Za-z0-9_])"                           # v20.1.6: C:/Users/Ann is not the start of C:/Users/Anna
+    h = _path_rx(str(home)) + end
     claude_tmp = _path_rx(str(tmp / "claude"))
     tmp_rules = [
         (claude_tmp + SEP + r"[A-Za-z0-9_.-]+" + SEP + r"[0-9a-fA-F-]+" + SEP + "scratchpad", "<scratchpad>"),
@@ -80,9 +168,9 @@ def build_rules(home: Path | None = None, tmp: Path | None = None, roots: list[s
     sandboxed = Path(str(home).replace("\\", "/").lower()).is_relative_to(str(tmp / "claude").replace("\\", "/").lower())
     rules: list[tuple[str, str]] = home_rules + tmp_rules if sandboxed else tmp_rules + home_rules
     for r in roots:
-        rules.append((_path_rx(r), "<workspace>"))
-    slug = re.sub(r"[:\\/]", "-", str(home))           # C:\Users\name -> C--Users-name (Claude Code's project folder)
-    rules.append((re.escape(slug), "C--workspace"))
+        rules.append((_path_rx(r) + end, "<workspace>"))
+    for p in [home] + list(roots):                      # C:\Users\name -> C--Users-name (Claude Code's project folder)
+        rules.append((re.escape(slug_of(p).rstrip("-")) + end, "C--workspace"))
     if owner:                                           # the name itself, after every path that carries it is gone
         rules.append((r"\b" + re.escape(owner) + r"'s\b", "the user's"))
         rules.append((r"\b" + re.escape(owner) + r"\b", "the user"))
@@ -123,7 +211,7 @@ def scrub_file(path: Path, write: bool = False, rs: list[tuple[re.Pattern, str]]
                owner: str | None = None) -> dict:
     """Scrub a JSONL file. Returns {rows, changed, shapes, leftovers, written}; writes only with write=True."""
     rs = rs or rules()
-    owner = owner if owner is not None else Path.home().name
+    owner = owner if owner is not None else (os.environ.get("MAESTRO_SCRUB_OWNER") or owner_of(Path.home()))
     lines = Path(path).read_text(encoding="utf-8").split("\n")
     out, shapes, changed = [], collections.Counter(), 0
     for ln in lines:
@@ -153,7 +241,7 @@ def scrub_file(path: Path, write: bool = False, rs: list[tuple[re.Pattern, str]]
 def _selftest() -> bool:
     ok: dict[str, bool] = {}
     home, tmp = Path("C:/Users/Owner"), Path("C:/Users/Owner/AppData/Local/Temp")
-    rs = build_rules(home, tmp, ["C:/Work"])
+    rs = build_rules(home, tmp, ["C:/Work"], owner="Owner")
     s = scrub_text
     ok["home in both separators and the Git Bash form -> ~"] = (
         s(r"C:\Users\Owner\x.txt", rs) == "~\\x.txt" and s("C:/Users/Owner/x", rs) == "~/x"
@@ -198,6 +286,35 @@ def _selftest() -> bool:
         s(box + "/box/home/q", rb) == "~/q" and s(box + "/box/home/.claude/x", rb) == "~/.claude/x"
         and s(box + "/other.py", rb) == "<scratchpad>/other.py")
     ok["the real rules build from this machine and send its home to ~"] = scrub_text(str(Path.home()) + "/q") == "~/q"
+    saved = {k: os.environ.pop(k) for k in ("MAESTRO_SCRUB_OWNER", "MAESTRO_SCRUB_ROOTS", "CLAUDE_CONFIG_DIR")
+             if k in os.environ}
+    try:                                                # v20.1.6: the defaults, with no setting in the way
+        ok["a generic home name (home, user, admin) names no one; a lower-case login is matched capitalized"] = (
+            owner_of(Path("/srv/box/home")) is None and owner_of(Path("C:/Users/admin")) is None
+            and owner_of(Path("C:/Users/Owner")) is None and owner_of(Path("/home/max")) == "Max"
+            and owner_of(Path("C:/Users/Ann")) == "Ann")
+        rh = build_rules(Path("/tmp/x/home"), Path("/tmp/x/t"), [])
+        rl = build_rules(Path("/home/max"), Path("/tmp"), [])
+        ok["a home named home keeps the word home; /home/max/x -> ~/x; Max -> the user, max drawdown stays"] = (
+            s("the home folder at /tmp/x/home/q", rh) == "the home folder at ~/q"
+            and s("/home/max/x and Max's max drawdown", rl) == "~/x and the user's max drawdown")
+        ok["a home path ends at a whole name: C:/Users/Ann is not the start of C:/Users/Anna"] = (
+            s("C:/Users/Ann/x C:/Users/Anna/y", build_rules(Path("C:/Users/Ann"), tmp, [], owner="")) == "~/x C:/Users/Anna/y")
+        with tempfile.TemporaryDirectory() as td:
+            t = Path(td)
+            hm, ws = t / "h", t / "ws" / "my_app.v2"
+            (ws / "sub").mkdir(parents=True)
+            (hm / "proj").mkdir(parents=True)
+            for d in (ws, ws / "sub", hm, hm / "proj", t / "gone", t):
+                (hm / ".claude" / "projects" / slug_of(d)).mkdir(parents=True, exist_ok=True)
+            rw = build_rules(hm, t / "tmp")
+            ok["workspace roots are the folders Claude Code ran in (my_app.v2 read back), nested folded; the home, "
+               "inside it, above it and a missing one left out; their project names -> C--workspace"] = (
+                workspace_roots(hm, t / "tmp") == [str(ws).replace("\\", "/")]
+                and s(str(ws / "sub" / "f.py"), rw) == os.sep.join(["<workspace>", "sub", "f.py"])
+                and s("projects/" + slug_of(ws / "sub") + "/x.jsonl", rw) == "projects/C--workspace-sub/x.jsonl")
+    finally:
+        os.environ.update(saved)
     for k, v in ok.items():
         print(f"  {'PASS' if v else 'FAIL'} scrub: {k}")
     print(f"scrub selftest: {sum(ok.values())}/{len(ok)} {'PASS' if all(ok.values()) else 'FAIL'}")

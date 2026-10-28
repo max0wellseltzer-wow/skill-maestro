@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -60,7 +61,9 @@ def examples(state: Path, ledger_rows: list[dict], before: float | None = None) 
     out = []
     hp = Path(state) / "hindsight.jsonl"
     if hp.is_file():
-        from phase import rows_of                     # v20.0.18: the turn view (a mid-turn ask folded into its turn)
+        from phase import (
+            rows_of,  # v20.0.18: the turn view (a mid-turn ask folded into its turn)
+        )
         for r in rows_of(Path(state)):
             used = set(r.get("used") or []) | set(r.get("observed") or [])
             used.discard("skill-maestro") if r.get("maestro") else None
@@ -92,9 +95,9 @@ def _vectors(meaning, texts: list[str], state: Path):
     try:
         import numpy as np
     except ImportError as exc:                            # v20: reading() returns [] before this; the plain-words error for a direct caller
-        raise RuntimeError("personal.py needs numpy (the maestro-meaning venv; see SHARING.md)") from exc
+        raise RuntimeError("personal.py needs numpy (pip install numpy, or the maestro-meaning venv)") from exc
     p = Path(state) / "personal_vectors.npz"
-    cache: dict[str, "np.ndarray"] = {}
+    cache: dict[str, np.ndarray] = {}
     if p.is_file():
         with np.load(p, allow_pickle=False) as z:          # closed at once: Windows cannot replace an open file
             cache = {str(k): v for k, v in zip(z["keys"], z["vecs"])}
@@ -104,6 +107,8 @@ def _vectors(meaning, texts: list[str], state: Path):
         vs = meaning.embed_queries([t for _, t in missing])
         for (k, _), v in zip(missing, vs):
             cache[k] = v
+        if os.environ.get("MAESTRO_NO_LEDGER") == "1":       # v20.1.6: --no-ledger writes nothing, this cache included
+            return np.array([cache[k] for k in keys], dtype=np.float32)
         tmp = p.with_name(p.stem + ".tmp.npz")
         np.savez_compressed(tmp, keys=np.array(list(cache)), vecs=np.array(list(cache.values()), dtype=np.float32))
         tmp.replace(p)
@@ -161,8 +166,8 @@ def report(meaning, state: Path, rows: list[dict]) -> str:
     top = sorted(votes.items(), key=lambda x: -x[1])[:12]
     low = sorted((x for x in votes.items() if x[1] < 0), key=lambda x: x[1])[:6]
     p = profile(rows)
-    L = [f"YOUR MAESTRO learns from {len(exs)} of your past prompts ({sum(1 for e in exs if e['src'] == 'used')} where skills were really used, "
-         f"{sum(1 for e in exs if e['src'] == 'rated')} rated runs). Private: {'yes, nothing is shared' if is_private(state) else 'no, `share` may write a file'}.",
+    L = [(f"YOUR MAESTRO learns from {len(exs)} of your past prompts ({sum(1 for e in exs if e['src'] == 'used')} where skills were really used, "
+          f"{sum(1 for e in exs if e['src'] == 'rated')} rated runs). Private: {'yes, nothing is shared' if is_private(state) else 'no, `share` may write a file'}."),
          "  most useful to you: " + ", ".join(f"{s} ({v:+.1f})" for s, v in top),
          "  pushed down for you: " + (", ".join(f"{s} ({v:+.1f})" for s, v in low) or "none yet"),
          f"  pick count: {p['chosen']} picks shown, {p['rated_unused']} rated unused, {p['added_by_judge']} added by your Claude -> scale {p['pick_scale']}"]

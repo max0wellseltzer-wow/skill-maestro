@@ -84,7 +84,7 @@ WHISPER_RX = re.compile(r"WHISPER \(([\d.]+)s(.*?)\): (.*)")   # the UserPromptS
 # (the reach counted 0 owner whispers after 2026-10-27); the reason is cut before its first colon, so "): " ends the head
 PICK_RX = re.compile(r"/([a-z0-9][a-z0-9_.:-]*)")
 BLIND_OVERLAP = 1       # v19: a use is BLIND when the prompt shares at most this many words with the skill's description
-REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 NOT_OWNER = ("<", "Another Claude session", "This session is being continued", "Base directory", "[Request interrupted")
 TEXT_KINDS = (("Another Claude session", "peer message"), ("<cross-session-message", "peer message"),
               ("<task-notification", "task notice"), ("<agent-message", "agent message"),
@@ -144,7 +144,7 @@ def iter_turns(f: Path, names: set | None = None, stats: dict | None = None):
     Tool results and plain prose never count. Sidechains (subagents) and meta records are skipped; with `names`, a
     path hit counts only for a real skill name. Streams line by line: a transcript can be hundreds of MB. `stats`
     (optional) counts what was skipped: unreadable files and unparsable lines, so a gap is visible, not silent."""
-    import phase as P                                       # beside this file (HERE is on sys.path)
+    import phase as P  # beside this file (HERE is on sys.path)
     try:
         fh = f.open(encoding="utf-8", errors="replace")
     except OSError:
@@ -313,7 +313,7 @@ def recent_prompts(k: int, exclude: str = "", paths=None, max_age_s: int = 6 * 3
     why = why if why is not None else {}
     if k <= 0:
         return []
-    import phase as P                                       # beside this file (HERE is on sys.path)
+    import phase as P  # beside this file (HERE is on sys.path)
     f, src = P.running_transcript(transcript, paths, session_id, max_age_s, why)
     h = max_age_s / 3600
     if f is None:
@@ -337,10 +337,10 @@ def write_probes(rows: list[dict], out: Path, context: int = 0, observed_only: b
     session's earlier prompts to prepend (0 = the prompt alone). `observed_only`: Skill-tool labels alone (v17).
     `since`: prompts from that date on only (the test side of a walk-forward split)."""
     lab = labels(rows, since=since, observed_only=observed_only)
-    lines = ["# hindsight probes: real prompts, labelled by the skills Claude actually reached for afterwards "
-             f"(built {time.strftime('%Y-%m-%d %H:%M')}, {len(lab)} prompts, context {context}"
-             f"{', observed labels only (Skill tool calls)' if observed_only else ', observed + inferred labels'}). "
-             "A label is what was used, not what was best: a miss here is a question, not a verdict."]
+    lines = [("# hindsight probes: real prompts, labelled by the skills Claude actually reached for afterwards "
+              f"(built {time.strftime('%Y-%m-%d %H:%M')}, {len(lab)} prompts, context {context}"
+              f"{', observed labels only (Skill tool calls)' if observed_only else ', observed + inferred labels'}). "
+              "A label is what was used, not what was best: a miss here is a question, not a verdict.")]
     for r in lab:
         lines.append(with_context(rows, r, context).replace("\t", " ").replace("\n", " ") + "\t" + ",".join(r["used"]))
     Path(out).write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -536,7 +536,7 @@ def render_regret(res: dict) -> str:
 def render_propose(rows: list[dict], show: int = 20) -> str:
     if not rows:
         return "PROPOSE: no skill was reached for often enough to learn its words (min uses not met)"
-    L = [f"PROPOSE (printed, never applied): words the owner used before reaching for a skill, absent from its text"]
+    L = ["PROPOSE (printed, never applied): words the owner used before reaching for a skill, absent from its text"]
     for r in rows[:show]:
         L.append(f"  {r['skill']:<28} used {r['uses']:>3}  add: " + ", ".join(f"{w} ({c})" for w, c in r["words"]))
     L.append("APPLY BY HAND: a word that names the skill's job goes into its description; one that names the owner's "
@@ -723,7 +723,7 @@ def documented_commands(doc: str) -> set[str]:
 
 def dead_switches(src: str) -> list[str]:
     """Module globals (UPPER_CASE = ...) that no other line of maestro.py reads: defined, never consulted."""
-    names = re.findall(r"^([A-Z][A-Z0-9_]{2,}) *(?::[^=]+)?= ", src, re.M)
+    names = re.findall(r"^([A-Z][A-Z0-9_]{2,}) *(?::[^=]+)?= ", src, re.MULTILINE)
     out = []
     for n in sorted(set(names)):
         uses = len(re.findall(r"\b" + re.escape(n) + r"\b", src))
@@ -769,7 +769,7 @@ def _vals(argv: list[str], flag: str) -> list[str]:
 
 def cli(argv: list[str], lib, st, root: Path) -> int:
     """argv starts with 'hindsight'."""
-    import phase as P                                       # beside this file (HERE is on sys.path)
+    import phase as P  # beside this file (HERE is on sys.path)
     sub = argv[1] if len(argv) > 1 else "status"
     state = Path(st.d)
     rows = rows_of(state)
@@ -835,10 +835,10 @@ def _selftest() -> bool:
     with tempfile.TemporaryDirectory() as td_:
         td = Path(td_)
         root = td / "skills"
-        skills = [("hysteresis", "Two-threshold latch that stops a flapping alert from chattering. Use this whenever "
-                                 "an alert flaps on and off."),
-                  ("plain-terms", "Rewrite a report in plain words for a reader. Use this whenever the owner wants plain "
-                                  "language.")]
+        skills = [("hysteresis", ("Two-threshold latch that stops a flapping alert from chattering. Use this whenever "
+                                  "an alert flaps on and off.")),
+                  ("plain-terms", ("Rewrite a report in plain words for a reader. Use this whenever the owner wants plain "
+                                   "language."))]
         sweep = [f"sw-{i}" for i in range(13)]
         for name, desc in skills + [(s, f"sweep skill {s}.") for s in sweep]:
             (root / name).mkdir(parents=True)
@@ -976,7 +976,7 @@ def _selftest() -> bool:
             dead_switches("ALPHA = 1\nBETA = 2\nx = ALPHA + 1\n") == ["BETA"]
         rc = render_commands(dem, "python maestro.py score\npython maestro.py eval\n", False, "")
         ok["commands: NEVER RUN names the documented command no transcript ran"] = "NEVER RUN" in rc and "eval" in rc.split("NEVER RUN")[1]
-        import os                                           # 2026-10-26: the running session's prompts, not a peer's
+        import os  # 2026-10-26: the running session's prompts, not a peer's
         rp = td / "rp"
         own_f, peer_f = rp / "proj" / "own-sess-0001.jsonl", rp / "proj" / "peer-sess-0002.jsonl"
         sub_f = rp / "proj" / "own-sess-0001" / "subagents" / "agent-x.jsonl"

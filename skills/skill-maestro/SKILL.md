@@ -115,6 +115,8 @@ writing. `--full` prints every section; `--brief` filters it to the working line
   is on by default: `share` writes nothing until `maestro.py private off`. `SHARING.md` lists what leaves the machine.
 - `maestro.py debt` lists unrated runs (`--close-older-than 3` closes stale ones); `cost` shows what the Maestro cost
   and bought; `grade` is the monthly report card.
+- `maestro.py forget` lists what the Maestro keeps on this PC (the history folder with the meaning model in it, old
+  plugin copies) and deletes nothing; `forget --yes` deletes those and only names the active copy, settings and venv.
 - In a cloud session the ledger lives in the repo (`shared/skill-maestro/ledger.jsonl`, merge=union). Commit it with
   the work.
 
@@ -149,8 +151,16 @@ Each skill is embedded from its description, the survey's `does`, its `asks` and
 fastembed, free, local, CPU, in its own venv). The vector file keeps itself current: a new or changed skill is embedded
 on the next query, a fresh install embeds the rest in a background job while the word readings carry the missing
 skills, a small cold library embeds whole, and a store covering under half its library stands down. A Python without
-fastembed asks the RESIDENT HELPER (`meaning.py serve`, one small background process, gone after three idle hours).
-Without the venv the other readings still rank; `MAESTRO_NO_MEANING=1` turns it off. Measured 2026-10-24, top-3:
+fastembed asks the RESIDENT HELPER (`meaning.py serve`, one small background process, gone after three idle hours)
+for the meaning, personal and mode readings alike. To make the venv (once; on the owner's PC the venv is 165 MB and the model 64 MB):
+
+```
+python -m venv ~/venvs/maestro-meaning
+~/venvs/maestro-meaning/Scripts/python -m pip install fastembed      # bin/python instead of Scripts/python off Windows
+```
+
+Without it the word readings still rank and the sheet says so in a MEANING OFF line, naming the readings that did not
+run; `MAESTRO_NO_MEANING=1` turns them off. Measured 2026-10-24, top-3:
 held-out 58 words 11 -> meaning 23; walk-forward 81 words 13 -> 19.
 
 ## Any library, any person

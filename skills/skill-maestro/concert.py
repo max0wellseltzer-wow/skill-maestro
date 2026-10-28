@@ -96,10 +96,10 @@ def digest(md: str, limit: int = 10) -> list[str]:
     """Extractive: the name, the first sentence of the description, the 'Use this whenever' sentence, up to three
     headings and up to three commands. Nothing is paraphrased; every line is a line (or sentence) of the file."""
     out: list[str] = []
-    fm = re.search(r"^---\s*\n(.*?)\n---", md, re.S)
+    fm = re.search(r"^---\s*\n(.*?)\n---", md, re.DOTALL)
     head = fm.group(1) if fm else ""
-    name = re.search(r"^name:\s*(.+)$", head, re.M)
-    desc = re.search(r"^description:\s*(.+)$", head, re.M)
+    name = re.search(r"^name:\s*(.+)$", head, re.MULTILINE)
+    desc = re.search(r"^description:\s*(.+)$", head, re.MULTILINE)
     if name:
         out.append(f"NAME {name.group(1).strip()}")
     if desc:
@@ -110,10 +110,10 @@ def digest(md: str, limit: int = 10) -> list[str]:
         if use:
             out.append("WHEN " + use[:220])
     body = md[fm.end():] if fm else md
-    heads = [h.strip("# ").strip() for h in re.findall(r"^#{1,3} .+$", body, re.M)][:3]
+    heads = [h.strip("# ").strip() for h in re.findall(r"^#{1,3} .+$", body, re.MULTILINE)][:3]
     out += [f"PART {h[:100]}" for h in heads]
     cmds = []
-    for blk in re.findall(r"```[^\n]*\n(.*?)```", body, re.S):
+    for blk in re.findall(r"```[^\n]*\n(.*?)```", body, re.DOTALL):
         for ln in blk.splitlines():
             ln = ln.strip()
             if ln.startswith("python ") and ln not in cmds:
@@ -366,7 +366,7 @@ def matrix(lib, mechs: dict, dials_text: str, charter_text: str) -> dict:
                 s = s.split("'")[0].split(" ")[0].strip()
                 if s and re.match(r"^[a-z0-9-]+$", s):
                     sources.setdefault(stage, Counter())[s] += 1
-    ev_words = re.compile(r"\b(\d+\s*(?:/|of|->)\s*\d+|p\s*[<=]?\s*0\.\d+|held-out|measured|E\d\d)\b", re.I)
+    ev_words = re.compile(r"\b(\d+\s*(?:/|of|->)\s*\d+|p\s*[<=]?\s*0\.\d+|held-out|measured|E\d\d)\b", re.IGNORECASE)
     dials = [{**d, "evidence": bool(ev_words.search(d["meaning"]))} for d in dial_rows(dials_text)]
     ops = Counter(t for m in mechs.values() for t in (m.get("tags") or []))
     return {"kind_x_phases": kinds, "stage_x_source": {k: dict(v.most_common(8)) for k, v in sources.items()},
@@ -406,14 +406,16 @@ def whisper_count(prompt: str, scored: list[dict]) -> tuple[int, str]:
     return M_.pick_count(prompt, weighed)
 
 
-def whisper(lib, prompt: str, k: int | None = None) -> list[str]:
-    """The finder's names for a prompt (words only, no bonuses, nothing written): k names when k is given (the eval's
-    finder@3 call), else 1 to PICKS_MAX by the task's size via whisper_count."""
+def whisper(lib, prompt: str, k: int | None = None, st=None) -> list[str]:
+    """The finder's names for a prompt (words only, no bonuses): k names when k is given (the eval's finder@3 call,
+    nothing written), else 1 to PICKS_MAX by the task's size via whisper_count. With `st` the self-pick record goes
+    to st's folder, and to none under --no-ledger (2026-10-28: it used to go to the default folder always)."""
     if k is not None:
         return [r["name"] for r in lib.search(prompt, k)]
     _maestro().MEANING_WAIT = 0.0                           # the hook never waits for the meaning helper to start
     _maestro().MEANING_ASK = HOOK_ASK                       # v20.0.7: nor on a helper busy with a score
-    scored = _maestro().purpose_rank(lib.search, prompt, root=lib.root, desc=lib.desc)   # 2026-10-24: meaning first, then words; 2026-10-25: desc for the deliverable vote (M51)
+    scored = _maestro().purpose_rank(lib.search, prompt, root=lib.root, desc=lib.desc,   # 2026-10-24: meaning first, then words; 2026-10-25: desc for the deliverable vote (M51)
+                                     state_dir=st.d if st is not None else None, keep=st.keep if st is not None else True)
     n, _why = whisper_count(prompt, scored)
     return [r["name"] for r in scored[:n]]
 
@@ -695,7 +697,7 @@ def cli(argv: list[str], lib, st, root: Path) -> int:
         if M_.not_owner_prompt(prompt):                         # 2026-10-26: a peer's message or a task notice
             return 0                                            # is not the user's ask; say nothing
         t0 = time.time()
-        names = whisper(lib, prompt)
+        names = whisper(lib, prompt, st=st)
         verdict, why = M_.triage(prompt, Path.cwd() if (Path.cwd() / ".claude").is_dir() else None)       # v20.0.7: the note ends in the next step
         print(render_whisper(prompt, names, time.time() - t0, verdict, why))
         return 0

@@ -50,6 +50,8 @@ MODEL_CACHE = Path(os.environ.get("MAESTRO_MODEL_CACHE",            # v20.0.4: t
                                   CLAUDE_HOME / "skill-maestro-state" / "fastembed_cache"))   # lives in one place
                                                                    # whatever --state says (a tour state used to re-download it)
 MODEL = os.environ.get("MAESTRO_MEANING_MODEL", "BAAI/bge-small-en-v1.5")
+SETUP = ("python -m venv ~/venvs/maestro-meaning, then ~/venvs/maestro-meaning/Scripts/python -m pip install fastembed "
+         "(bin/python instead of Scripts/python off Windows); SKILL.md, section \"The meaning reading\"")   # v20.1.6
 VENV_PY = Path.home() / "venvs" / "maestro-meaning" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 # Background launches use pythonw on Windows: the venv's python.exe is a launcher that re-runs the base python.exe as a
 # child, and a DETACHED child console program gets a fresh, visible console window (the user saw one every few minutes).
@@ -103,10 +105,10 @@ def skill_texts(root: Path = ROOT) -> dict[str, str]:
     desc: dict[str, str] = {}
     for sk in sorted(Path(root).glob("*/SKILL.md")):
         t = sk.read_text(encoding="utf-8", errors="replace")
-        m = re.search(r"^---\s*\n(.*?)\n---", t, re.S)
+        m = re.search(r"^---\s*\n(.*?)\n---", t, re.DOTALL)
         fm = m.group(1) if m else ""
-        nm = re.search(r"^name:\s*(.+)$", fm, re.M)
-        ds = re.search(r"^description:\s*(.+?)(?=^\w[\w-]*:|\Z)", fm, re.M | re.S)
+        nm = re.search(r"^name:\s*(.+)$", fm, re.MULTILINE)
+        ds = re.search(r"^description:\s*(.+?)(?=^\w[\w-]*:|\Z)", fm, re.MULTILINE | re.DOTALL)
         name = (nm.group(1).strip().strip("'\"") if nm else sk.parent.name)
         body = t[m.end():] if m else t
         d = (ds.group(1).strip().strip("'\"") if ds else "").replace("\n", " ")
@@ -151,7 +153,7 @@ _MODEL: dict = {}
 
 
 class MeaningUnavailable(ImportError):
-    """numpy or fastembed is not importable here: the meaning reading runs in the maestro-meaning venv (SHARING.md)."""
+    """numpy or fastembed is not importable here: the meaning reading runs in the maestro-meaning venv (SETUP)."""
 
 
 def _np():
@@ -160,7 +162,8 @@ def _np():
     try:
         import numpy
     except ImportError as exc:
-        raise MeaningUnavailable("meaning.py needs numpy and fastembed: run it with the maestro-meaning venv python (SHARING.md)") from exc
+        raise MeaningUnavailable("meaning.py needs numpy and fastembed: run it with the maestro-meaning venv python. "
+                                 "To make the venv: " + SETUP) from exc
     return numpy
 
 
@@ -169,7 +172,8 @@ def _model():
         try:
             from fastembed import TextEmbedding
         except ImportError as exc:
-            raise MeaningUnavailable("meaning.py needs fastembed: run it with the maestro-meaning venv python (SHARING.md)") from exc
+            raise MeaningUnavailable("meaning.py needs fastembed: run it with the maestro-meaning venv python. "
+                                     "To make the venv: " + SETUP) from exc
         MODEL_CACHE.mkdir(parents=True, exist_ok=True)
         _MODEL["m"] = TextEmbedding(model_name=MODEL, cache_dir=str(MODEL_CACHE))
     return _MODEL["m"]
@@ -202,6 +206,13 @@ def _load_store(root: Path, state: Path | None = None) -> dict:
         texts = skill_texts(root)
         return {"names": names, "vecs": lvecs, "shas": [_sha(texts.get(n, "")) for n in names], "sig": ""}
     return {"names": [], "vecs": np.zeros((0, 384), dtype=np.float32), "shas": [], "sig": ""}
+
+
+def no_write() -> bool:
+    """v20.1.6: `--no-ledger` (maestro.py sets MAESTRO_NO_LEDGER=1 for its modules) is strict here too: the vector file
+    on disk is read, nothing is written (no vector file, no build or helper lock, no helper started). Such a run embeds
+    its changed skills in memory each time, so it is a few seconds slower."""
+    return os.environ.get("MAESTRO_NO_LEDGER") == "1"
 
 
 def _save_store(root: Path, s: dict, state: Path | None = None) -> None:
@@ -288,6 +299,8 @@ def prune(root: Path = ROOT, state: Path | None = None) -> list[str]:
 
 def background_build(root: Path, state: Path | None = None) -> bool:
     """Start `meaning.py build --root ROOT` detached, once (a lock file); True when one was started."""
+    if no_write():
+        return False
     lk = _lock(root, state)
     try:
         if lk.is_file() and time.time() - lk.stat().st_mtime < LOCK_STALE:
@@ -308,11 +321,16 @@ LAST: dict = {}
 _MEM: dict[str, dict] = {}   # 2026-10-25: root key -> store, for libraries that persist no file
 
 
-def rank(prompts: list[str], k: int = 40, root: Path = ROOT, state: Path | None = None) -> list[list[tuple[str, float]]]:
-    """For each prompt, the top k skills by meaning with their cosine. Keeps the vector file current first."""
+def rank(prompts: list[str], k: int = 40, root: Path = ROOT, state: Path | None = None,
+         write: bool | None = None) -> list[list[tuple[str, float]]]:
+    """For each prompt, the top k skills by meaning with their cosine. Keeps the vector file current first, unless
+    `write` is False (default: not no_write()), when the file is read and the changes stay in memory."""
     np = _np()
-    persist = state is not None or Path(root).resolve() == ROOT.resolve()   # v19: a library with no state folder of its own
-    st = sync(root, INLINE_MAX if persist else None, state, persist)         # (a selftest's temp root) is embedded in memory only
+    if write is None:
+        write = not no_write()
+    real = state is not None or Path(root).resolve() == ROOT.resolve()      # v19: a library with no state folder of its own
+    persist = real and write                                                 # (a selftest's temp root) is embedded in memory only
+    st = sync(root, INLINE_MAX if real else None, state, persist)
     if st["pending"] and persist:
         LAST["background"] = background_build(root, state)
     s = st["store"]
@@ -343,7 +361,7 @@ def meaning_rank_subprocess(prompt: str, k: int = 40, timeout: float = 20.0, roo
         return [tuple(x) for x in json.loads(out)] if p.returncode == 0 else None
     except subprocess.TimeoutExpired:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         else:
             p.kill()
         try:
@@ -379,33 +397,36 @@ def serve(state: Path | None = None) -> int:
     with Listener(("127.0.0.1", 0), authkey=key) as ls:
         info = _serve_info(state)
         info.parent.mkdir(parents=True, exist_ok=True)
-        info.write_text(json.dumps({"port": ls.address[1], "key": key.hex(), "pid": os.getpid(), "t": time.time()}), encoding="utf-8")
-        import socket
+        info.write_text(json.dumps({"port": ls.address[1], "key": key.hex(), "pid": os.getpid(), "t": time.time(),
+                                    "nowrite": True}), encoding="utf-8")   # v20.1.6: it honours a request's "nowrite"
         ls._listener._socket.settimeout(60)                    # wake once a minute to check the idle clock
-        last = time.time()
-        while time.time() - last < SERVE_IDLE:
+        last, stop = time.time(), False
+        while time.time() - last < SERVE_IDLE and not stop:
             try:
                 conn = ls.accept()
-            except (socket.timeout, OSError):
+            except (TimeoutError, OSError):
                 continue
-            except Exception:  # noqa: BLE001 (a caller with a wrong key)
+            except Exception:  # noqa: BLE001, S112 (a caller with a wrong key)
                 continue
             last = time.time()
             try:
                 req = conn.recv()
                 if req.get("op") == "rank":
                     out = rank(req["prompts"], int(req.get("k", 40)), Path(req.get("root") or ROOT),
-                               Path(req["state"]) if req.get("state") else None)
+                               Path(req["state"]) if req.get("state") else None, write=not req.get("nowrite"))
                     conn.send({"ok": True, "r": out, "last": dict(LAST)})
                 elif req.get("op") == "embed":
                     vs = (embed_queries if req.get("kind") == "query" else embed_docs)(req["texts"])
                     conn.send({"ok": True, "v": [list(map(float, v)) for v in vs]})
+                elif req.get("op") == "stop":                  # v20.1.6: `maestro.py forget --yes` before it deletes the folder
+                    stop = True
+                    conn.send({"ok": True, "stopped": os.getpid()})
                 else:
                     conn.send({"ok": True, "pong": os.getpid()})
             except Exception as exc:  # noqa: BLE001
                 try:
                     conn.send({"ok": False, "err": f"{type(exc).__name__}: {exc}"})
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110 (the caller already left)
                     pass
             finally:
                 conn.close()
@@ -473,7 +494,7 @@ def _alive(pid: int) -> bool:
 def start_server(state: Path | None = None) -> bool:
     """Start `meaning.py serve` in the background, at most once a minute (a lock) and never while the recorded helper
     is still alive (a busy helper misses the 5 s answer window; starting a second one each time piled them up)."""
-    if not VENV_PY.is_file():
+    if not VENV_PY.is_file() or no_write():
         return False
     lk = Path(state or STATE) / "meaning_server.lock"
     try:
@@ -508,14 +529,24 @@ def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | Non
     accepted its connection and sat on it for the full 5 s, which held every prompt of the owner's session).
     v20.1.2: no wait when no helper can come (no maestro-meaning venv on this PC: a stranger's score polled 90 s at each
     of its six meaning readings, 540 of its 545 seconds), and one wait per run and state: a wait that ran out once is not
-    sat through again by the same process (the next readings ask once and go on)."""
-    ask = {"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None}
+    sat through again by the same process (the next readings ask once and go on).
+    v20.1.6: under no_write() only a running helper that honours "nowrite" is asked, and none is started or waited for."""
+    nw = no_write()
+    ask = {"op": "rank", "prompts": [prompt], "k": k, "root": str(root), "state": str(state) if state else None,
+           "nowrite": nw}
+    if nw:
+        try:
+            ready = bool(json.loads(_serve_info(state).read_text(encoding="utf-8")).get("nowrite"))
+        except (OSError, ValueError, AttributeError):
+            ready = False                                       # no helper, or one from before v20.1.6 (it would write)
+        if not ready:
+            return None
     r = ask_server(ask, timeout=ask_timeout, state=state)
     if r:
         LAST.update(r.get("last") or {})
         return [tuple(x) for x in r["r"][0]]
     key = str(state or STATE)
-    if not VENV_PY.is_file() or key in WAITED_OUT:
+    if nw or not VENV_PY.is_file() or key in WAITED_OUT:
         return None
     start_server(state)
     t0 = time.time()
@@ -528,6 +559,49 @@ def rank_anywhere(prompt: str, k: int = 40, root: Path = ROOT, state: Path | Non
     if wait > 0:
         WAITED_OUT.add(key)
     return None
+
+
+class Helper:
+    """v20.1.6: embed_queries / embed_docs through the resident helper, so the personal and mode readings run in a Python
+    without fastembed (before, they were silently empty there while the meaning reading used the helper). It starts and
+    waits for the helper the way rank_anywhere does (one wait per process and state; none under no_write()), asks in
+    chunks so a first personal reading of a long history does not outlast one ask, and raises RuntimeError when no
+    helper answers (the callers turn that into an empty reading and the sheet's MEANING OFF line)."""
+    CHUNK = 32
+
+    def __init__(self, state: Path | None = None, wait: float = 0.0, ask_timeout: float = 30.0) -> None:
+        self.state, self.wait, self.ask_timeout = state, wait, ask_timeout
+
+    def _ask(self, req: dict) -> dict | None:
+        r = ask_server(req, timeout=self.ask_timeout, state=self.state)
+        key = str(self.state or STATE)
+        if r or no_write() or not VENV_PY.is_file() or key in WAITED_OUT or self.wait <= 0:
+            return r
+        start_server(self.state)
+        t0 = time.time()
+        while time.time() - t0 < self.wait:
+            time.sleep(0.5)
+            r = ask_server(req, timeout=self.ask_timeout, state=self.state)
+            if r:
+                return r
+        WAITED_OUT.add(key)
+        return None
+
+    def _embed(self, texts: list[str], kind: str):
+        np = _np()
+        out = []
+        for i in range(0, len(texts), self.CHUNK):
+            r = self._ask({"op": "embed", "kind": kind, "texts": list(texts[i:i + self.CHUNK])})
+            if not r:
+                raise RuntimeError("no meaning helper answered (it runs from ~/venvs/maestro-meaning)")
+            out += r["v"]
+        return np.array(out, dtype=np.float32).reshape(len(out), -1)
+
+    def embed_queries(self, texts: list[str]):
+        return self._embed(texts, "query")
+
+    def embed_docs(self, texts: list[str]):
+        return self._embed(texts, "doc")
 
 
 def fuse(lists: list[list[str]], weights: list[float], k: int = 60) -> list[str]:
@@ -575,7 +649,7 @@ def _mcnemar(b: int, c: int) -> float:
     n = b + c
     if n == 0:
         return 1.0
-    tail = sum(comb(n, i) for i in range(0, min(b, c) + 1)) / 2 ** n
+    tail = sum(comb(n, i) for i in range(min(b, c) + 1)) / 2 ** n
     return round(min(1.0, 2 * tail), 4)
 
 
@@ -686,7 +760,7 @@ def _selftest() -> bool:
         t_ask = time.time() - t0
         ok["ask_server: a helper that never answers costs the timeout, not forever"] = a is None and t_ask < 4.0
         saved_sub, calls, saved_py = meaning_rank_subprocess, [], VENV_PY
-        meaning_rank_subprocess = lambda *a, **kw: calls.append(1)   # noqa: E731
+        meaning_rank_subprocess = lambda *a, **kw: calls.append(1)
         VENV_PY = Path(sys.executable)     # a venv that is there (the lock above keeps start_server from starting one)
         try:
             rank_anywhere("where will it hail", 3, ROOT, st, wait=0.0, ask_timeout=0.5)   # the hook's ask: no wait
@@ -714,6 +788,59 @@ def _selftest() -> bool:
             VENV_PY = saved_py
         ok["rank_anywhere v20.1.2: with no meaning venv on the PC the reading is None at once, no wait"] = (
             r is None and t_none < 3.0 and str(Path(td)) not in WAITED_OUT)
+    saved_nl = os.environ.get("MAESTRO_NO_LEDGER")
+    os.environ["MAESTRO_NO_LEDGER"] = "1"                    # v20.1.6: --no-ledger is strict here too
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            lib, st = Path(td) / "lib", Path(td) / "state"
+            (lib / "delta").mkdir(parents=True)
+            (lib / "delta" / "SKILL.md").write_text("---\nname: delta\ndescription: count the birds in a photo\n---\n", encoding="utf-8")
+            started = (background_build(lib, st), start_server(st))
+            st.mkdir()
+            info = _serve_info(st)                            # a helper from before v20.1.6 would write the vector file
+            info.write_text(json.dumps({"port": 9, "key": "00" * 24, "pid": os.getpid(), "t": time.time()}), encoding="utf-8")
+            t0 = time.time()
+            old = rank_anywhere("count the birds", 3, lib, st, wait=5.0, ask_timeout=0.5)
+            t_old = time.time() - t0
+            info.unlink()
+            ok["no-ledger: no build or helper is started, an old helper is not asked, no file is left"] = (
+                started == (False, False) and old is None and t_old < 2.0 and not any(st.iterdir()))
+            if have:
+                r8 = rank(["count the birds in my photo"], 2, lib, st)[0]
+                ok["no-ledger: rank reads by meaning in memory and writes no vector file"] = (
+                    bool(r8) and r8[0][0] == "delta" and not any(st.iterdir()))
+    finally:
+        if saved_nl is None:
+            os.environ.pop("MAESTRO_NO_LEDGER", None)
+        else:
+            os.environ["MAESTRO_NO_LEDGER"] = saved_nl
+    try:
+        _np()
+        have_np = True
+    except MeaningUnavailable:
+        have_np = False
+    if have_np:                                              # v20.1.6: Helper, against a fake helper (no venv, no model)
+        asks: list[dict] = []
+        real_ask = globals()["ask_server"]
+
+        def fake(req, timeout=5.0, state=None):
+            asks.append(req)
+            return {"ok": True, "v": [[float(len(x)), 1.0] for x in req["texts"]]}
+        globals()["ask_server"] = fake
+        try:
+            h = Helper(None, wait=0.0)
+            v = h.embed_docs([f"t{i}" for i in range(Helper.CHUNK + 3)])
+            ok["helper: embeds in chunks through the helper, one row per text"] = (
+                v.shape == (Helper.CHUNK + 3, 2) and len(asks) == 2 and asks[0]["kind"] == "doc"
+                and h.embed_queries(["abc"])[0][0] == 3.0 and asks[-1]["kind"] == "query")
+            globals()["ask_server"] = lambda req, timeout=5.0, state=None: None
+            try:
+                Helper(None, wait=0.0).embed_queries(["x"])
+                ok["helper: no answer raises (the reading goes empty and the sheet says MEANING OFF)"] = False
+            except RuntimeError:
+                ok["helper: no answer raises (the reading goes empty and the sheet says MEANING OFF)"] = True
+        finally:
+            globals()["ask_server"] = real_ask
     bad = [k for k, v in ok.items() if not v]
     print(f"meaning selftest: {len(ok) - len(bad)}/{len(ok)} PASS" + ("" if not bad else "\n  FAIL " + "\n  FAIL ".join(bad)))
     return not bad
@@ -763,6 +890,16 @@ def _main(argv: list[str]) -> int:
         cur = sum(1 for n, h in zip(s["names"], s["shas"]) if n in texts and h == _sha(texts[n]))
         print(f"MEANING VECTORS: {cur} of {len(texts)} skills current; {len(texts) - cur} waiting "
               f"({'a background build is running' if _lock(root).is_file() else 'they are added at the next query'}); file {store_path(root)}")
+        try:                                                  # v20.1.6: what the README said this line tells
+            import fastembed  # noqa: F401
+            here = True
+        except ImportError:
+            here = False
+        pong = (ask_server({"op": "ping"}, timeout=1.5) or {}).get("pong")
+        print(f"MEANING MODEL: fastembed in this Python {'yes' if here else 'no'}; venv {VENV_PY} "
+              f"{'present' if VENV_PY.is_file() else 'missing'}; resident helper "
+              + (f"answering (pid {pong})" if pong else "not running (a score starts it when the venv is present)")
+              + ("" if here or VENV_PY.is_file() else ". To make the venv: " + SETUP))
         return 0
     if argv[0] == "search":
         k = int(_opt(argv, "-k", "10"))

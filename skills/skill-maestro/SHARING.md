@@ -112,9 +112,9 @@ Off switches, each enough on its own:
 | switch | effect |
 |---|---|
 | `maestro.py private on` (the default) | `share` writes no file; `share --preview` still prints |
-| `--no-ledger` on any command, or `MAESTRO_NO_LEDGER=1` | nothing is written to the ledger for that run |
+| `--no-ledger` on any command, or `MAESTRO_NO_LEDGER=1` | nothing is written for that run: no ledger row, no cache, no lock file |
 | `DO_NOT_TRACK=1` (the console convention) | `share` writes nothing; `doctor` drops its HELP pointer |
-| delete `~/.claude/skill-maestro-state/` | all history gone; the next score starts fresh |
+| `maestro.py forget`, then `forget --yes` | lists, then deletes, the history folder and old plugin copies; the next score starts fresh |
 
 ## Known limits
 

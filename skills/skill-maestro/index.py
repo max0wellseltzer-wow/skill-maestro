@@ -183,14 +183,14 @@ def cli_index(argv: list[str], lib, st, root: Path, M) -> int:
     for r in roots:
         stats: dict = {}
         t0 = time.perf_counter()
-        indexed_load(lib.fs, r, M.STATE, force=force, stats=stats)
+        indexed_load(lib.fs, r, st.d, force=force, stats=stats, write=st.keep)
         dt = time.perf_counter() - t0
         total += stats.get("n", 0)
         changed += stats.get("changed", 0)
         print(f"  {str(r)[-60:]:<60} {stats.get('n', 0):>4} skills  {'indexed' if stats.get('indexed') else 'plain (small)':<14} "
               f"changed {stats.get('changed', 0):>3}  {dt:.2f}s")
     print(f"INDEX {'REBUILT' if force else 'VERIFIED'}: {total} skills over {len(roots)} root(s), {changed} re-read; "
-          f"files in {M.STATE}")
+          f"files in {st.d}")
     return 0
 
 
@@ -227,7 +227,7 @@ def _selftest() -> bool:
             t0 = time.perf_counter()
             b = indexed_load(fs, M.USER_LIB, td / "state", stats=s2)
             warm = time.perf_counter() - t0
-            strip = lambda L: [{k: (sorted(v) if isinstance(v, set) else v) for k, v in s.items() if k != "sha"} for s in L]  # noqa: E731
+            strip = lambda L: [{k: (sorted(v) if isinstance(v, set) else v) for k, v in s.items() if k != "sha"} for s in L]
             ok["cold index == find_skill.load on the real library (every field, same order)"] = strip(a) == strip(plain)
             ok["warm index == plain, nothing re-read, and it is faster"] = \
                 strip(b) == strip(plain) and s2["changed"] == 0 and warm < cold

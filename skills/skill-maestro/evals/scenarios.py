@@ -36,9 +36,9 @@ COPY = ["skill-finder", "core-skill-pin", "pen-run", "doc-truth", "dataviz", "sc
         "windows-gotchas", "escape-proof", "land-a-change", "tree-status", "code-cage", "speed-proof", "kelly-sizing",
         "walk-forward-split", "monte-carlo-paths", "skill-health", "skills-index", "staged-secret-scan", "statsmodels",
         "polars", "redaction", "receipt-report"]
-NEW = ("tide-table-reader", "Reads a harbour's published tide table and tells you the next high and low water, the "
-       "range, and whether a boat with a given draught can leave the berth. Use when someone asks when the tide turns, "
-       "whether there is enough water to sail, or plans a trip around the tides.")
+NEW = ("tide-table-reader", ("Reads a harbour's published tide table and tells you the next high and low water, the "
+        "range, and whether a boat with a given draught can leave the berth. Use when someone asks when the tide turns, "
+        "whether there is enough water to sail, or plans a trip around the tides."))
 CASES = [
     ("A", "when is high water tomorrow, can my boat with 1.4 m draught get out of the marina", {"tide-table-reader"}, {}),
     ("B", "is there enough water under the keel to leave the harbour at noon", {"tide-table-reader"}, {}),
@@ -69,7 +69,7 @@ def whisper(lib: Path, state: Path, prompt: str, env_extra: dict) -> tuple[list[
     t0 = time.time()
     r = subprocess.run([sys.executable, str(lib / "skill-maestro" / "maestro.py"), "whisper", "--stdin", "--no-ledger",
                         "--root", str(lib), "--state", str(state)], input=json.dumps({"prompt": prompt}),
-                       capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
+                       capture_output=True, text=True, encoding="utf-8", env=env, timeout=600, check=False)
     line = next((x for x in r.stdout.splitlines() if x.startswith("WHISPER (")), "")   # 2026-10-28: was the last line,
     names = re.findall(r"/([a-z0-9][a-z0-9_.:-]*)", line.split("): ", 1)[-1].split("   (")[0]) if "): " in line else []
     return names, time.time() - t0, (r.stdout + r.stderr)[-400:]       # which is NEXT STEP since v20.0.7 (no picks)

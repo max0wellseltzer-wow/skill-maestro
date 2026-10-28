@@ -239,8 +239,8 @@ NO_SUBJECT = {"quick-answer", "read-the-person", "finish-everything", "explain",
               "memory-notes", "forecast", "math", "research-web", "choose-skills"}   # the subject is the conversation or the idea
 NO_DONE = {"quick-answer", "explain", "how-to", "read-the-person", "finish-everything", "brainstorm", "memory-notes"}
 SUBJECT_RX = re.compile(r"([A-Za-z]:[\\/]|\.(py|md|json|jsonl|csv|tsv|toml|txt|xlsx|pdf|docx|pptx|html)\b|https?://|\b[\w-]+/[\w./-]+|`[^`]+`|\bGT\d+\b)")
-DONE_RX = re.compile(r"\b(so that|until|done when|should (?:be|show|print|pass)|must|goal|target|pass(?:es)?|by \w+day)\b", re.I)
-RISKY_RX = re.compile(r"\b(delete|remove|push|merge|live|real money|deploy|overwrite|rename|migrate|drop|reset)\b", re.I)
+DONE_RX = re.compile(r"\b(so that|until|done when|should (?:be|show|print|pass)|must|goal|target|pass(?:es)?|by \w+day)\b", re.IGNORECASE)
+RISKY_RX = re.compile(r"\b(delete|remove|push|merge|live|real money|deploy|overwrite|rename|migrate|drop|reset)\b", re.IGNORECASE)
 
 
 def _texts_key(modes: list[dict]) -> str:
@@ -264,8 +264,9 @@ def select(meaning, prompt: str, state: Path, force: str | None = None) -> dict 
         mv = np.load(p)
     else:
         mv = meaning.embed_docs([m["name"].replace("-", " ") + ": " + m["when"] for m in modes])
-        p.parent.mkdir(parents=True, exist_ok=True)
-        np.save(p, mv)
+        if os.environ.get("MAESTRO_NO_LEDGER") != "1":   # v20.1.6: --no-ledger writes nothing, this file included
+            p.parent.mkdir(parents=True, exist_ok=True)
+            np.save(p, mv)
     q = meaning.embed_queries([prompt[:2000]])[0]
     sims = mv @ q
     order = list(np.argsort(-sims))

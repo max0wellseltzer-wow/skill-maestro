@@ -192,8 +192,8 @@ def contribute_text(rows: list[dict], private: bool | None) -> str:
     owner_rates = sum(1 for r in mine if r.get("kind") == "RATE" and r.get("by") not in (None, "claude"))
     priv = "unknown" if private is None else ("ON (share writes nothing until `maestro.py private off`)" if private else "OFF")
     L = ["CONTRIBUTE: ways to help the Maestro, by the time they take. Nothing here runs or sends by itself.",
-         f"  You so far: {n.get('SCORE', 0)} runs scored, {n.get('FIT', 0)} FIT verdicts, {owner_rates} ratings by you "
-         f"({n.get('RATE', 0) - owner_rates} by Claude). Private mode: {priv}.",
+         (f"  You so far: {n.get('SCORE', 0)} runs scored, {n.get('FIT', 0)} FIT verdicts, {owner_rates} ratings by you "
+          f"({n.get('RATE', 0) - owner_rates} by Claude). Private mode: {priv}."),
          "",
          "  30 seconds",
          "    python maestro.py thumbs last up        or `down`: rate the last run. A wrong pick is the most useful signal there is.",
@@ -290,7 +290,8 @@ def _selftest() -> bool:
                 return rows
         saved_dnt, cwd_before = os.environ.pop("DO_NOT_TRACK", None), set(Path.cwd().glob("maestro_ratings_*.json"))
         try:
-            import contextlib, io
+            import contextlib
+            import io
             with contextlib.redirect_stdout(io.StringIO()):
                 run(["share"], _St(), t / "state", code="c0de", private=False)
         finally:

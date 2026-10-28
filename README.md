@@ -1,4 +1,4 @@
-# skill-maestro (Claude Code plugin package, v20.1.5)
+# skill-maestro (Claude Code plugin package, v20.1.6)
 
 The Maestro picks skills for a task from whatever library you have (even only Claude Code's built-ins), proves the
 picks on the task's real subject, and learns from what was really used afterwards. Pure Python 3.10+, standard
@@ -34,11 +34,16 @@ python ~/.claude/skills/skill-maestro/maestro.py score "<your task in your own w
 If a `/plugin update` seems to change nothing, the plugin cache kept the old copy: remove the package's folder under
 `~/.claude/plugins/cache/` and install again. A by-hand copy has no cache.
 
-To leave: `/plugin uninstall skill-maestro@skill-maestro`, then `/plugin marketplace remove skill-maestro`. That
-removes the package, not your history: `~/.claude/skill-maestro-state/` (its `ledger.jsonl` holds every task you
-scored) stays until you delete it, and the old versions in `~/.claude/plugins/cache/skill-maestro/` stay marked
-orphaned. Delete both folders to leave nothing behind. A by-hand copy: delete `~/.claude/skills/skill-maestro/` and
-the state folder.
+To leave, first run `python <skill folder>/maestro.py forget` (the plugin's skill folder is
+`~/.claude/plugins/cache/skill-maestro/skill-maestro/<version>/skills/skill-maestro/`). It lists what uninstalling
+leaves behind: the history folder `~/.claude/skill-maestro-state/` (its `ledger.jsonl` holds every task you scored;
+the meaning model, about 67 MB, lives inside it) and the old versions under `~/.claude/plugins/cache/skill-maestro/`
+that updates marked orphaned. Nothing is deleted until you add `--yes`. The version in use, your `settings.json` and
+the meaning venv `~/venvs/maestro-meaning` are only named, never touched. Then `/plugin uninstall
+skill-maestro@skill-maestro` and `/plugin marketplace remove skill-maestro`. If
+`~/.claude/plugins/cache/skill-maestro/` is still there after that, delete it by hand: Claude Code removes an
+orphaned copy 14 days later, but only while some other plugin is still installed. A by-hand copy: `forget --yes`,
+then delete `~/.claude/skills/skill-maestro/`.
 
 ## Trust: what this package does on your machine
 
@@ -46,6 +51,7 @@ the state folder.
   one line in `CHANGELOG.md` and one `version` bump in `.claude-plugin/plugin.json`.
 - **It installs no hooks.** `plugin.json` declares skills only. The owner's SessionStart listing check (`listing.py`)
   and UserPromptSubmit whisper are opt-ins you would add to your own `settings.json` by hand; nothing here does it.
+  Nothing depends on them: `maestro.py`'s own runs keep the skill index and the self-pick record.
 - **What runs without you typing it:** nothing beyond the score you asked for. A FULL `score` runs each pick's own
   `--selftest` once from an empty temp folder (its HEALTH gate; cached in `health.json`, skipped on QUICK) and reads
   the picks' scripts with an AST walk, never executing them. TRY commands run only when you type `maestro.py try ...`.
@@ -59,6 +65,12 @@ the state folder.
 - **Verify it yourself:** `python ~/.claude/skills/skill-maestro/maestro.py doctor` (12 checks) and
   `python ~/.claude/skills/skill-maestro/maestro.py --selftest` (prints PASS). Both read; neither writes outside
   `~/.claude/skill-maestro-state/`.
+- **Behaviour evals (billed; run them only if you want to):** `evals/` holds two `claude plugin eval` cases.
+  `01-pick-skills` checks that "use your skills" calls the Maestro and comes back with named picks, a reason for
+  each and a first step; `02-no-fire-arithmetic` checks that "what is 17 times 23" calls no skill at all. Each case
+  runs with and without the package (3 times by default) on your own account. A small pilot from this folder:
+  `claude plugin eval . --runs 1 --max-cost-usd 2 --no-publish -j 1 --allow-tools Bash`. `--allow-tools Bash` lets
+  the run execute the skill's Python commands as you; `--max-cost-usd` is a ceiling, not an estimate.
 
 ## Helping, only as much as you like
 
@@ -109,8 +121,11 @@ skill-finder or skill-health from this plugin.
 ## Optional: the meaning reading and the extras
 
 - **Meaning.** Picks rank by meaning first when a Python with `fastembed` (BAAI/bge-small-en-v1.5) is installed at
-  `~/venvs/maestro-meaning`; `maestro.py meaning status` says whether the model and the resident helper
-  (`meaning.py serve`) are up. Without it the skill runs by words alone, and says so.
+  `~/venvs/maestro-meaning`; `python meaning.py status` says whether the model and the resident helper
+  (`meaning.py serve`) are up. Make it once with `python -m venv ~/venvs/maestro-meaning`, then
+  `~/venvs/maestro-meaning/Scripts/python -m pip install fastembed` (`bin/python` off Windows). Any Python then gets
+  the meaning, personal and mode readings through that helper. Without it the skill runs by words alone, and each
+  sheet says so in a MEANING OFF line.
 - **Extras.** `chain`, `rehearse`, `play`, `brief`, `inverse`, `repertoire`, `anti`, `rerank`, `tune`, `ablate`,
   `why`, `odds` and `fairness.py` are research commands; they live in the package `skill-maestro-extras`, installed as
   a sibling folder of the skill (or pointed at with `MAESTRO_EXTRAS`). Without it each of them prints one line saying

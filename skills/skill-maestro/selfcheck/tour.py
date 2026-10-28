@@ -18,13 +18,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "evals"))
-from scenarios import stop_helpers                  # v20.0.4: the tour stops the meaning helpers it spawned
+from scenarios import (
+    stop_helpers,  # v20.0.4: the tour stops the meaning helpers it spawned
+)
 
 
 def build_tours(maestro: Path, tmp: Path, lib: Path, st: Path) -> list[tuple]:
     """(label, expected exit, argv after maestro.py[, a phrase the output must contain[, extra environment]])."""
     S = ["--state", str(st)]
     NOX = {"MAESTRO_EXTRAS": str(tmp / "no-extras")}   # v20: a core install, whatever is beside this copy
+    CH = {"CLAUDE_CONFIG_DIR": str(tmp / "claude-home")}   # v20.1.6: forget looks for old plugin copies here, not in yours
     return [
         ("help", 0, []),
         ("index --build", 0, ["index", "--build", *S], "INDEX"),   # v20.0.4: first, so every score below reads the prepared index
@@ -90,6 +93,17 @@ def build_tours(maestro: Path, tmp: Path, lib: Path, st: Path) -> list[tuple]:
         ("grade", 0, ["grade", *S], "REPORT CARD"),
         ("hindsight status", 0, ["hindsight", "status", *S], "HINDSIGHT"),
         ("index", 0, ["index", *S], "INDEX VERIFIED"),
+        # v20.1.6: the commands the tour selftest found never toured (v20.0.10 on), all inside the throwaway state
+        ("modes", 0, ["modes", *S], "modes ("),
+        ("modes add", 0, ["modes", "add", "tour-mode", "count tour widgets", *S], "MODES: wrote tour-mode"),
+        ("modes remove", 0, ["modes", "remove", "tour-mode", *S], "MODES: removed tour-mode"),
+        ("personal", None, ["personal", *S]),                  # needs the meaning model: a report, or one line saying so
+        ("share (private: writes nothing)", 0, ["share", *S], "PRIVATE: nothing written"),
+        ("share --preview", 0, ["share", "--preview", *S], "PREVIEW:"),
+        ("intake (no bundles; --state is not one)", 0, ["intake", str(lib), *S], '"bundles": 0'),
+        ("community", 0, ["community", *S], "COMMUNITY"),
+        ("contribute", 0, ["contribute", *S], "CONTRIBUTE"),
+        ("forget (dry run)", 0, ["forget", *S], "Nothing was deleted", CH),
         # v20: the research commands live in skill-maestro-extras; a core install says so in one line
         *[(f"{c} without extras", 2, [c, *a, *S], "is part of skill-maestro-extras", NOX)
           for c, a in (("chain", ["last"]), ("rehearse", ["last"]), ("play", ["last"]), ("brief", ["last"]),
@@ -100,6 +114,7 @@ def build_tours(maestro: Path, tmp: Path, lib: Path, st: Path) -> list[tuple]:
         ("bad --root", 5, ["score", "x", "--root", str(tmp / "nowhere"), *S]),
         ("STANDALONE foreign library", 0, ["score", "count alpha widgets", "--root", str(lib), "--custom-only",
                                            "--keywords-only", "--state", str(tmp / "state2")]),
+        ("forget --yes (last: deletes the state)", 0, ["forget", "--yes", *S], "DELETED 1 of 1 folder(s)", CH),
     ]
 
 
@@ -153,7 +168,7 @@ def main(argv: list[str]) -> int:
         try:
             r = subprocess.run([*M, *args], cwd=str(tmp) if label.startswith("STANDALONE") else cwd,   # no project library
                                capture_output=True, text=True, timeout=900, encoding="utf-8", errors="replace",
-                               env={**os.environ, "PYTHONIOENCODING": "utf-8", **env_extra})
+                               env={**os.environ, "PYTHONIOENCODING": "utf-8", **env_extra}, check=False)
             out, rc = r.stdout + r.stderr, r.returncode
         except subprocess.TimeoutExpired:
             out, rc = "TIMEOUT", -1
@@ -166,10 +181,10 @@ def main(argv: list[str]) -> int:
             first = next((ln for ln in reversed(out.splitlines()) if ln.strip()), first)[:70]
         print(f"{'ok  ' if ok else 'BAD '} {label:<34} {time.time() - t0:5.1f}s exit={rc}{'' if rc == want else f' (want {want})'}"
               f"{' TRACEBACK' if tb else ''}{'' if phrase_ok else f' (missing {expect[0]!r})'} | {first}")
-        if label == "STANDALONE foreign library" and ok:
-            if "STANDALONE" not in out or "alpha-tool" not in out or "ON THE PC" in out:
-                bad += 1
-                print("BAD  standalone output: expected STANDALONE + alpha-tool, no ON THE PC line")
+        if label == "STANDALONE foreign library" and ok and (
+                "STANDALONE" not in out or "alpha-tool" not in out or "ON THE PC" in out):
+            bad += 1
+            print("BAD  standalone output: expected STANDALONE + alpha-tool, no ON THE PC line")
     for sd in (st, tmp / "state2", tmp / "state3"):     # v20.0.4: the helpers the tours spawned, then the folder itself
         if sd.is_dir():
             stop_helpers(sd)

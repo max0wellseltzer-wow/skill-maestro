@@ -32,8 +32,8 @@ new kind of job; `maestro.py modes` lists the built-in ones (yours marked *).
 - **SPECTRUM**: kind of ask. numbers / building / creative / role-play / writing / teaching / deciding / research /
   talking to people / running jobs / data / play. Each kind = its own steps.
 - **PICKS 1-22**: more asks = more cards. Tiny ask = 1. Big ask = up to 22.
-- **ledger**: Maestro's diary. Every run, read, try, rating. Never erased. Cloud session: diary lives in your
-  project (`shared/skill-maestro/ledger.jsonl`). Commit it or lose it.
+- **ledger**: Maestro's diary. Every run, read, try, rating. Never erased unless you say so (`forget`). Cloud
+  session: diary lives in your project (`shared/skill-maestro/ledger.jsonl`). Commit it or lose it.
 - **STANDALONE**: helper cards (skill-finder etc.) missing. Fine. Still works. Bit less sharp.
 
 ## The one rule
@@ -51,3 +51,7 @@ LIMIT: never email real customers from a test
 LIMIT: don't touch payments code without asking
 ```
 Now every score starts with your goals + limits. Warns when an ask or a pick crosses one.
+
+## To leave
+`maestro.py forget` = what Maestro keeps on your PC. Deletes nothing. `forget --yes` = delete it. Then
+`/plugin uninstall skill-maestro@skill-maestro`. Your settings and venv: named, never touched.

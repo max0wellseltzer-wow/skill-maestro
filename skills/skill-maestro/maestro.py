@@ -69,6 +69,7 @@ new skills are never missed. Design notes and the evidence behind v2: brainstorm
     python maestro.py share [--preview|--issue|--with-tasks]    # your ratings as one masked bundle; --preview prints only; --issue: prefilled link
     python maestro.py intake FILE|DIR | community               # fold in other people's bundles (as DATA); who sent what
     python maestro.py contribute                                # every way to help the Maestro, by the time it takes; nothing is sent by itself
+    python maestro.py forget [--yes]                            # v20.1.6: what it keeps on this PC; --yes deletes its history folder and old plugin copies
     python maestro.py --selftest
 
 v20: chain, rehearse, play, brief, inverse, repertoire, anti, rerank, tune, ablate, why, odds and fairness.py are
@@ -154,8 +155,8 @@ def load_dials(path: Path = DIALS) -> tuple[dict[str, str], str]:
     if not path.is_file():
         return {}, "no-panel"
     txt = path.read_text(encoding="utf-8")
-    m = re.search(r"^EXPECTED_DIALS:\s*(\d+)", txt, re.M)
-    rows = re.findall(r"^\| (M\d+) \| ([a-z_]+) \| ([^|]+?) \| (yes|no) \|", txt, re.M)
+    m = re.search(r"^EXPECTED_DIALS:\s*(\d+)", txt, re.MULTILINE)
+    rows = re.findall(r"^\| (M\d+) \| ([a-z_]+) \| ([^|]+?) \| (yes|no) \|", txt, re.MULTILINE)
     if not m or int(m.group(1)) != len(rows):
         raise DialError(f"DIAL_COUNT: header says {m.group(1) if m else '?'}, panel has {len(rows)} rows")
     dials = {name: val.strip() for _, name, val, _ in rows}
@@ -167,7 +168,7 @@ def load_dials(path: Path = DIALS) -> tuple[dict[str, str], str]:
 
 def apply_dials(d: dict[str, str]) -> None:
     global MARGIN, POOL, W_USE, W_FASC, W_FAV, RRF_K, MEMORY_SIM, FAMILY_CAP, CONCEPT_PULL, WONDER_K, NEED_FLOOR
-    num = lambda k, cur, f=float: f(d[k]) if k in d else cur  # noqa: E731
+    num = lambda k, cur, f=float: f(d[k]) if k in d else cur
     MARGIN, POOL = num("margin", MARGIN), num("pool", POOL, int)
     W_USE, W_FASC, W_FAV = num("w_use", W_USE), num("w_fasc", W_FASC), num("w_fav", W_FAV)
     RRF_K, MEMORY_SIM, FAMILY_CAP = num("rrf_k", RRF_K, int), num("memory_sim", MEMORY_SIM), num("family_cap", FAMILY_CAP, int)
@@ -270,25 +271,32 @@ SELF = "skill-maestro" # v11 never picked itself; 2026-10-24 (the user): it may,
 SELF_TOP, SELF_MAX, SELF_WINDOW = 3, 12, 20  # dial M47: meaning must rank it in the top 3, and at most 12 of the last 20 runs (the user 2026-10-24)
 
 
-def self_pick_allowed(meaning_top: list[str], state_dir: Path, record: bool = True) -> tuple[bool, str]:
+def self_pick_allowed(meaning_top: list[str], state_dir: Path, record: bool = True,
+                      task: str | None = None) -> tuple[bool, str]:
     """May the Maestro be one of its own picks on this prompt? Only when the meaning reading ranks it in the top
     SELF_TOP (the prompt is about choosing or using skills) and it was picked in fewer than SELF_MAX of the last
-    SELF_WINDOW runs that asked (not excessively). The decision is recorded in state/self_picks.json."""
+    SELF_WINDOW runs that asked (not excessively). The decision is recorded in state/self_picks.json.
+    2026-10-28 (warning 7, self-picks recorded twice): a prompt counts once. With `task`, the record carries a
+    12-character hash of the prompt (never its text); asking again with the same prompt (the whisper, then the
+    score) leaves out its own earlier record when counting and writes nothing new."""
     want = SELF in list(meaning_top)[:SELF_TOP]
     p = Path(state_dir) / "self_picks.json"
     try:
         hist = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else []
     except (OSError, ValueError):
         hist = []
-    recent = sum(1 for x in hist[-SELF_WINDOW:] if x)
+    key = hashlib.sha256(" ".join(task.lower().split()).encode("utf-8")).hexdigest()[:12] if task else None
+    win = hist[-SELF_WINDOW:]                               # old records are bare booleans, new ones [hash, bool]
+    seen = key is not None and any(isinstance(x, list) and x[:1] == [key] for x in win)
+    recent = sum(1 for x in win if (x[1] if isinstance(x, list) else x) and not (isinstance(x, list) and x[0] == key))
     ok = want and recent < SELF_MAX
     why = ("not about choosing skills" if not want else
            f"picked {recent} of the last {SELF_WINDOW} runs: at the cap of {SELF_MAX}" if not ok else
            f"the prompt is about choosing skills (meaning top {SELF_TOP}); {recent} of the last {SELF_WINDOW} runs")
-    if record and want:
+    if record and want and not seen:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps((hist + [ok])[-200:]), encoding="utf-8")
+            p.write_text(json.dumps((hist + [[key, ok] if key else ok])[-200:]), encoding="utf-8")
         except OSError:
             pass
     return ok, why
@@ -355,25 +363,25 @@ META = {"use", "using", "your", "our", "full", "array", "skill", "skills", "cons
         "tell", "let", "know", "which", "should", "would", "could", "every", "entire", "really", "actually", "just",
         "help", "want", "need", "way", "things", "thing", "stuff", "all", "any", "maestro", "optimal", "useful"}
 CHECKER = re.compile(r"\b(test|tests|check|checks|audit|verify|verifies|lint|plant|falsif\w*|proof|prove|proves|"
-                     r"refut\w*|replicat\w*|referee|mutation|red-team|adversar\w*)\b", re.I)
+                     r"refut\w*|replicat\w*|referee|mutation|red-team|adversar\w*)\b", re.IGNORECASE)
 ROLES = {   # the work's own phases; a skill's role is read from its name and the first sentence of its description
     "UNDERSTAND": re.compile(r"\b(read|reads|map|lens|view|eye|explain|survey|index|find|finds|inventor\w*|presuppos\w*|"
-                             r"assum\w*|context|catalog\w*|browse|trace|search)\b", re.I),
+                             r"assum\w*|context|catalog\w*|browse|trace|search)\b", re.IGNORECASE),
     "BUILD": re.compile(r"\b(build|builds|compose|composes|forge|scaffold|write|writes|generat\w*|create|creates|design|"
-                        r"implement\w*|sketch|draft|breed|splice|add)\b", re.I),
+                        r"implement\w*|sketch|draft|breed|splice|add)\b", re.IGNORECASE),
     "VERIFY": CHECKER,
     "LAND": re.compile(r"\b(land|landing|pen|commit|merge|push|branch|handoff|hand-off|report|receipt|ledger|publish|"
-                       r"mailbox|release|archive)\b", re.I),
+                       r"mailbox|release|archive)\b", re.IGNORECASE),
 }
 PHASE_ORDER = ("UNDERSTAND", "BUILD", "VERIFY", "LAND")
 KINDS = {   # what a skill takes as input / what a task works on (v7b; the user: does the skill work on the task at hand?)
-    "LOG": re.compile(r"\b(append-only|ledger|log|logs|chain|jsonl|ordered record|decisions\.md|errata|timestamps?)\b", re.I),
-    "SERIES": re.compile(r"\b(series|returns?|prices?|bars?|ohlc\w*|candles?|time-series|signal|signals|volatility)\b", re.I),
-    "CODE": re.compile(r"\b(code|python|function|functions|module|modules|repo|git|commit|tests?|mutants?|bytecode)\b", re.I),
-    "PLAN": re.compile(r"\b(plan|plans|card|cards|spec|roadmap|milestones?|phases?)\b", re.I),
-    "TEXT": re.compile(r"\b(text|texts|note|notes|sentences?|prose|report|reports|document|draft|reply|claims?)\b", re.I),
-    "GRAPH": re.compile(r"\b(graph|graphs|network|nodes|edges|dependency|dependencies)\b", re.I),
-    "SKILLS": re.compile(r"\b(skill|skills|library|SKILL\.md)\b", re.I),
+    "LOG": re.compile(r"\b(append-only|ledger|log|logs|chain|jsonl|ordered record|decisions\.md|errata|timestamps?)\b", re.IGNORECASE),
+    "SERIES": re.compile(r"\b(series|returns?|prices?|bars?|ohlc\w*|candles?|time-series|signal|signals|volatility)\b", re.IGNORECASE),
+    "CODE": re.compile(r"\b(code|python|function|functions|module|modules|repo|git|commit|tests?|mutants?|bytecode)\b", re.IGNORECASE),
+    "PLAN": re.compile(r"\b(plan|plans|card|cards|spec|roadmap|milestones?|phases?)\b", re.IGNORECASE),
+    "TEXT": re.compile(r"\b(text|texts|note|notes|sentences?|prose|report|reports|document|draft|reply|claims?)\b", re.IGNORECASE),
+    "GRAPH": re.compile(r"\b(graph|graphs|network|nodes|edges|dependency|dependencies)\b", re.IGNORECASE),
+    "SKILLS": re.compile(r"\b(skill|skills|library|SKILL\.md)\b", re.IGNORECASE),
 }
 
 
@@ -400,7 +408,7 @@ def kind_mismatch(skill_name: str, desc: str, task: str) -> str | None:
     if sk & tk:
         return None
     return f"KIND_MISMATCH: it takes {'/'.join(sorted(sk))}, the task works on {'/'.join(sorted(tk))}"
-SCOPE = re.compile(r"[^.;!?\n]*\b(?:do not|don't|dont|never|only|without|not yet|no more than|stop)\b[^.;!?\n]*", re.I)
+SCOPE = re.compile(r"[^.;!?\n]*\b(?:do not|don't|dont|never|only|without|not yet|no more than|stop)\b[^.;!?\n]*", re.IGNORECASE)
 
 
 def other_skill_roots(home: Path | None = None) -> list[tuple[Path, str, str]]:
@@ -449,8 +457,9 @@ def other_skill_roots(home: Path | None = None) -> list[tuple[Path, str, str]]:
 class MiniFinder:
     """A shareable stand-in for skill-finder (same shapes: load, _tokens, search) so the Maestro runs in a library
     that has no skill-finder. Plain TF-IDF over name and description; the real finder's stop list is richer."""
-    STOP = {"the", "and", "for", "with", "that", "this", "from", "into", "use", "when", "whenever", "max", "any",
-            "are", "its", "one", "not", "all", "each", "every", "then", "than", "them", "they", "you", "your"}
+    STOP = frozenset({"the", "and", "for", "with", "that", "this", "from", "into", "use", "when", "whenever", "max",
+                      "any", "are", "its", "one", "not", "all", "each", "every", "then", "than", "them", "they",
+                      "you", "your"})
 
     @classmethod
     def _tokens(cls, text: str) -> list:
@@ -511,8 +520,8 @@ class MiniPin:
         return fs.search(skills, query, top=top)
 
 
-LIMIT_MARK = re.compile(r"\b(never|no|not|must not|only|until|banned|forbidden|stays? disabled|do not|don't)\b", re.I)
-GOAL_MARK = re.compile(r"\b(goal|purpose|aim|mission|we are building|this project|the plan|objective)\b", re.I)
+LIMIT_MARK = re.compile(r"\b(never|no|not|must not|only|until|banned|forbidden|stays? disabled|do not|don't)\b", re.IGNORECASE)
+GOAL_MARK = re.compile(r"\b(goal|purpose|aim|mission|we are building|this project|the plan|objective)\b", re.IGNORECASE)
 PICKS_MAX = 22
 OWNER = __import__("os").environ.get("MAESTRO_OWNER", "the owner")   # who rates: "the user" on his PC (set MAESTRO_OWNER), "the owner" elsewhere
 
@@ -547,12 +556,10 @@ def charter(project: Path | None) -> dict:
             continue
         if not s:
             continue
-        if not first_para and not s.startswith(("-", "*")) and not heading.lower().startswith(("process", "this machine", "where")):
+        if not first_para and not s.startswith(("-", "*")) and not heading.lower().startswith(("process", "this machine", "where")) or first_para and len(" ".join(first_para)) < 400 and not s.startswith(("-", "*")) and heading == "":
             first_para.append(s)
-        elif first_para and len(" ".join(first_para)) < 400 and not s.startswith(("-", "*")) and heading == "" :
-            first_para.append(s)
-        under_limits = (re.search(r"limit|rule|never|must|stay|boundar", heading, re.I)
-                        and not re.search(r"removed|not rules|facts|history|retired", heading, re.I))
+        under_limits = (re.search(r"limit|rule|never|must|stay|boundar", heading, re.IGNORECASE)
+                        and not re.search(r"removed|not rules|facts|history|retired", heading, re.IGNORECASE))
         if LIMIT_MARK.search(s) and (under_limits or s.startswith(("-", "*"))):
             (strict if under_limits else loose).append(s.lstrip("-* ").strip())
         elif GOAL_MARK.search(s) and not s.startswith(("-", "*")) and s not in first_para:
@@ -624,7 +631,7 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
     2026-10-25: with `desc` (name -> description) the deliverable reading (dial M51) adds its vote."""
     words = [r["name"] for r in word_search(task, 120)]
     mean = meaning_rank(ranking_text(task), 120, root, state_dir) or []
-    self_ok, _ = self_pick_allowed([n for n, _ in mean[:SELF_TOP]], Path(state_dir or STATE), record=keep)
+    self_ok, _ = self_pick_allowed([n for n, _ in mean[:SELF_TOP]], Path(state_dir or STATE), record=keep, task=task)
     sc: dict[str, float] = {}
     cap: dict[str, float] = {}                              # the same votes at CAP_K, for pick_count's cap (criticism 2)
     via: dict[str, list] = {}
@@ -653,7 +660,7 @@ def purpose_rank(word_search, task: str, k: int = PICKS_MAX, root: Path | None =
                         sc[n] = sc.get(n, 0.0) + WEIGHTS["phase"] / (RRF_K + r)
                         cap[n] = cap.get(n, 0.0) + WEIGHTS["phase"] / (CAP_K + r)
                         via.setdefault(n, []).append("phase")
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110 (the phase reading is a bonus; without it the score stands)
             pass
     best, best_cap = max(sc.values()), max(cap.values())
     rows = [{"name": n, "score": round(s * 1000, 3), "fit": s / best, "cap": cap[n] / best_cap, "via": via[n]}
@@ -670,14 +677,20 @@ def use_line(c: dict, phase: str, subject: str, run: str) -> str:
     cmd = c.get("first_cmd")
     run_as = f"/{c['name']}" if c.get("source") == "built-in" else c["name"]
     parts = [f"{run_as} [{phase}]: {when}" if when else f"{run_as} [{phase}]"]
-    parts.append(f"RUN `{cmd}`" if cmd else ("no file to read; invoke it as /" + c["name"] if c.get("source") == "built-in" else "open its SKILL.md and follow its first command"))
+    how = ("no file to read; invoke it as /" + c["name"] if c.get("source") == "built-in" else
+           f"invoke it as /{c['invoke']} or open its SKILL.md and follow its first command"   # v20.1.6: a plugin's skill
+           if c.get("invoke", c["name"]) != c["name"] else "open its SKILL.md and follow its first command")
+    parts.append(f"RUN `{cmd}`" if cmd else how)
     def flat(v):   # a card field is a string or {kind, shape}
         return f"{v.get('kind', '')} - {v.get('shape', '')}".strip(" -") if isinstance(v, dict) else str(v)
     parts.append(f"FEED {flat(card['input'])[:90]}" if card.get("input") else f"FEED {subject}")
     if card.get("output"):
         parts.append(f"EXPECT {flat(card['output'])[:90]}")
     elif card.get("probe"):
-        parts.append(f"ASK IT '{str(card['probe'])[:80]}'")
+        probe = str(card["probe"])
+        if c.get("skill_md"):                 # v20.1.6: the folder, as the sheets' own command line shows it
+            probe = probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent))
+        parts.append(f"ASK IT '{probe[:80]}'")
     if card.get("assumes"):
         a = card["assumes"]
         parts.append(f"ASSUMES {(a[0] if isinstance(a, list) else str(a))[:80]}")
@@ -738,7 +751,7 @@ def health_of(lib, st, name: str, timeout: int = 60) -> str | None:
         for p in tools:
             try:
                 r = subprocess.run([sys.executable, "-B", str(p), "--selftest"], cwd=neutral, capture_output=True,
-                                   timeout=timeout)
+                                   timeout=timeout, check=False)
                 if r.returncode != 0:
                     verdict = health_verdict((r.stdout + r.stderr).decode("utf-8", "replace"))
                     break
@@ -824,9 +837,9 @@ def script_side_effects(folder: Path, cache_dir: Path | None = None) -> list[str
                 found.add("exec")
             if d in POST:
                 found.add("send" if d[0] == "smtplib" else "post")
-            if d == ("urllib.request", "urlopen") or (isinstance(f, ast.Attribute) and f.attr == "urlopen"):
-                if any(kw.arg == "data" for kw in node.keywords) or len(node.args) > 1:
-                    found.add("post")
+            if (d == ("urllib.request", "urlopen") or (isinstance(f, ast.Attribute) and f.attr == "urlopen")) and (
+                    any(kw.arg == "data" for kw in node.keywords) or len(node.args) > 1):
+                found.add("post")
             if (isinstance(f, ast.Attribute) and f.attr in ("run", "check_output", "check_call", "call", "Popen")) and \
                     d and d[0] == "subprocess":
                 lits = " ".join(str(getattr(c, "value", "")) for c in ast.walk(node) if isinstance(c, ast.Constant))
@@ -854,7 +867,7 @@ def frontmatter_field(md: Path, field: str) -> str | None:
     if not txt.startswith("---"):
         return None
     head = txt.split("---", 2)[1] if txt.count("---") >= 2 else ""
-    m = re.search(rf"^{re.escape(field)}:\s*(.+)$", head, re.M)
+    m = re.search(rf"^{re.escape(field)}:\s*(.+)$", head, re.MULTILINE)
     return m.group(1).strip().strip("'\"") if m else None
 
 
@@ -940,14 +953,15 @@ def _load(path: Path, name: str):
     return mod
 
 
-def _lib_load(fs, r: Path, write: bool = True) -> list:
+def _lib_load(fs, r: Path, write: bool = True, cache: Path | None = None) -> list:
     """v15: the prepared index (index.py) for a root big enough to matter, else find_skill.load. Any doubt: the plain loader.
-    write False (--no-ledger): an index already there is read, none is written."""
+    write False (--no-ledger): an index already there is read, none is written. cache: the state folder (v20.1.6: --state's,
+    where the whisper reads it; it was always the default one)."""
     ix = HERE / "index.py"
     try:
         if ix.is_file():
-            return _load(ix, "maestro_index").indexed_load(fs, r, STATE, write=write)
-    except Exception:  # noqa: BLE001
+            return _load(ix, "maestro_index").indexed_load(fs, r, Path(cache) if cache else STATE, write=write)
+    except Exception:  # noqa: BLE001, S110 (any doubt: the plain loader below)
         pass
     return fs.load(r)
 
@@ -955,6 +969,8 @@ def _lib_load(fs, r: Path, write: bool = True) -> list:
 
 _MEANING = {}
 MEANING_WAIT = 90.0   # seconds score/eval wait for the resident meaning helper to start; the whisper hook sets 0
+MEANING_SETUP = ("python -m venv ~/venvs/maestro-meaning, then ~/venvs/maestro-meaning/Scripts/python -m pip install "
+                 'fastembed (bin/python instead of Scripts/python off Windows); SKILL.md, section "The meaning reading"')
 MEANING_ASK = 5.0     # v20.0.7: seconds one ask of a running helper may take; the whisper hook sets ~1 s (a helper busy
                       # with a score sat on the hook for 5 s at every prompt)
 
@@ -1006,6 +1022,23 @@ def meaning_ok() -> bool:
     return bool(_MEANING.get("mod")) and bool(_MEANING.get("inproc")) and __import__("os").environ.get("MAESTRO_NO_MEANING") != "1"
 
 
+def meaning_model(state: Path | None = None):
+    """v20.1.6 (warning 2: "personal picks need fastembed"): what embeds for the personal and mode readings. meaning.py
+    itself when fastembed imports here; else meaning.Helper, which asks the resident helper of the maestro-meaning venv
+    (the meaning reading already did; these two were silently empty); None when there is no venv or no numpy, or the
+    meaning reading is switched off (MAESTRO_NO_MEANING=1)."""
+    if meaning_ok():
+        return _MEANING["mod"]
+    mod = _MEANING.get("mod")
+    if mod is None or os.environ.get("MAESTRO_NO_MEANING") == "1" or not mod.VENV_PY.is_file():
+        return None
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        return None
+    return mod.Helper(Path(state) if state else None, wait=MEANING_WAIT, ask_timeout=max(MEANING_ASK, 30.0) if MEANING_WAIT else MEANING_ASK)
+
+
 def select_mode(task: str, state: Path | None = None, force: str | None = None) -> dict | None:
     """The prompt's mode (modes.py): matched by meaning, or forced with --mode. None when the meaning model is absent
     and nothing was forced."""
@@ -1013,9 +1046,10 @@ def select_mode(task: str, state: Path | None = None, force: str | None = None) 
         D = _load(HERE / "modes.py", "modes")
         if force:
             return D.select(None, task, Path(state or STATE), force)
-        if not meaning_ok():
+        M = meaning_model(state or STATE)
+        if M is None:
             return None
-        return D.select(_MEANING["mod"], task, Path(state or STATE))
+        return D.select(M, task, Path(state or STATE))
     except KeyError:
         raise
     except Exception:  # noqa: BLE001
@@ -1026,9 +1060,13 @@ class Library:
     """The skill library (or several: the user library plus a project's .claude/skills) seen through its own tools.
     The tools load from the first root; a skill present in two roots is taken from the first."""
 
-    def __init__(self, root: Path, extra: tuple[Path, ...] = (), everything: bool = True, keep: bool = True) -> None:
+    def __init__(self, root: Path, extra: tuple[Path, ...] = (), everything: bool = True, keep: bool = True,
+                 cache: Path | None = None) -> None:
         self.everything = everything
         self.keep = keep                     # False under --no-ledger: the index and caches are read, never written
+        self.index_dir = Path(cache) if cache else STATE   # v20.1.6: the index goes to the state folder in use
+        self.duets: dict[str, set[str]] = {}   # learned from use (learned_duets); main fills it
+        self.meaning_off: set[str] = set()     # v20.1.6: readings that found no meaning model (the sheet's MEANING OFF line)
         self.root = Path(root)
         self.roots = [self.root] + [Path(e) for e in extra if Path(e).is_dir() and Path(e) != self.root]
         fsp, pinp = companion(self.root, "find_skill.py"), companion(self.root, "core_pin.py")
@@ -1047,7 +1085,7 @@ class Library:
         as_plugin = {d.resolve(): pre for d, pre, _ in other if d.resolve() in mine}   # root: read it once, not twice
         for r, prefix, src in [(r, "", "") for r in self.roots] + [o for o in other if o[0].resolve() not in mine]:
             dirs = sorted(p for p in r.iterdir() if p.is_dir() and (p / "SKILL.md").exists())   # find_skill.load's order
-            for d, s in zip(dirs, _lib_load(self.fs, r, self.keep)):   # v15: the prepared index (index.py)
+            for d, s in zip(dirs, _lib_load(self.fs, r, self.keep, self.index_dir)):   # v15: the prepared index (index.py)
                 if prefix:
                     s = {**s, "name": prefix + s["name"]}
                     s["name_toks"] = set(self.fs._tokens(s["name"]))
@@ -1150,8 +1188,6 @@ class Library:
                             self._adj.setdefault(o, set()).add(n)
         return self._adj
 
-    duets: dict[str, set[str]] = {}
-
     def network(self, seeds: list[tuple[str, float]], steps: int = 20) -> list[str]:
         """Personalized PageRank: activation starts on the top hits (weighted by score) and flows along the
         network, so a skill the leaders all pair with rises even when the task's words never name it."""
@@ -1217,7 +1253,7 @@ class Library:
         return [n for n, _ in sorted(sc.items(), key=lambda x: (-x[1], x[0]))[:top]]
 
     quick = False
-    concept_per: list = []                           # per-concept mechanism matches (set by score when concepts given)
+    concept_per: list | tuple = ()                   # per-concept mechanism matches (set by score when concepts given)
 
     # v16 O10: the intents (doc2query) reading was removed; ablation 2026-10-22 marked it COSTS at 1.0 and at 0.5.
     # v20: intents/intents.json (276 KB) and its last reader, examples(), removed with it; the pool shows descriptions only.
@@ -1290,6 +1326,8 @@ class Library:
         the same way, ranked by cosine (meaning.py; a free local model in its own venv). Empty when the venv or the
         vectors are missing, so the other readings still rank."""
         r = meaning_rank(task, depth, self.root, getattr(self, "state_dir", None))
+        if r is None:
+            self.meaning_off.add("meaning")
         return [n for n, _ in r if n in self.desc] if r else []
 
     def personal_reading(self, task: str, depth: int) -> list[str]:
@@ -1297,15 +1335,20 @@ class Library:
         skills THIS person used and rated on past prompts that mean what the task means (personal.py). Learns from
         the owner's own history only, never from other people's ratings. Empty without the meaning model."""
         st, rows_fn = getattr(self, "state_dir", None), getattr(self, "personal_rows", None)
-        if st is None or rows_fn is None or not meaning_ok():
+        if st is None or rows_fn is None:
+            return []
+        M = meaning_model(st)                        # v20.1.6: the helper too, not only fastembed in this process
+        if M is None:
+            self.meaning_off.add("personal")
             return []
         try:
             if getattr(self, "_personal", None) is None:
                 P = _load(HERE / "personal.py", "personal")
                 self._personal = (P, P.examples(st, rows_fn(), before=getattr(self, "personal_before", None)))
             P, exs = self._personal
-            return [n for n, _ in P.reading(_MEANING["mod"], task, exs, st, depth) if n in self.desc]
+            return [n for n, _ in P.reading(M, task, exs, st, depth) if n in self.desc]
         except Exception:  # noqa: BLE001
+            self.meaning_off.add("personal")          # the helper did not answer in time
             return []
 
     def phase_reading(self, task: str, depth: int) -> list[str]:
@@ -1328,7 +1371,7 @@ class Library:
     def mode_reading(self, task: str, depth: int) -> list[str]:
         """2026-10-24: the skills whose purpose is closest to the MODE the prompt is in (modes.py, its `lean` text)."""
         st = getattr(self, "state_dir", None) or STATE
-        if not meaning_ok():
+        if meaning_model(st) is None:
             return []
         try:
             sel = getattr(self, "mode_sel", None) or select_mode(task, st)
@@ -1665,8 +1708,8 @@ def board(rows: list[dict]) -> list[str]:
     M = latest_metrics(rows)
     if not M:
         return ["METRICS: none yet. After a run: `maestro.py rate RUN <skill|menu:A..E> --by max|claude inner=4 topic=5 ...`"]
-    L = [f"METRICS over {len(M)} ratings (0-5). inner = {', '.join(METRICS_INNER)} (self-report when by Claude); "
-         f"topic = {', '.join(METRICS_TOPIC)}"]
+    L = [(f"METRICS over {len(M)} ratings (0-5). inner = {', '.join(METRICS_INNER)} (self-report when by Claude); "
+          f"topic = {', '.join(METRICS_TOPIC)}")]
     L.append(f"menu idea       by {OWNER}: inner topic (n)    by Claude: inner topic (n)")
     for letter, name, _ in MENU_IDEAS:
         cells = []
@@ -1674,7 +1717,7 @@ def board(rows: list[dict]) -> list[str]:
             rs = [r for r in M if r["by"] == who and r["target"] == f"menu:{letter}"]
             im = [x for x in (group_mean(r["scores"], METRICS_INNER) for r in rs) if x is not None]
             tm = [x for x in (group_mean(r["scores"], METRICS_TOPIC) for r in rs) if x is not None]
-            f = lambda xs: f"{sum(xs) / len(xs):.1f}" if xs else " -"  # noqa: E731
+            f = lambda xs: f"{sum(xs) / len(xs):.1f}" if xs else " -"
             cells.append(f"{f(im):>5} {f(tm):>5} ({len(rs)})")
         L.append(f"  {letter} {name:<11}  {cells[0]:<22}    {cells[1]}")
     sk: dict[str, list[float]] = {}
@@ -1779,7 +1822,7 @@ def taste(cmd: list[str], subject: Path, work: Path, seed: int = 0, question: st
         argv = [sys.executable if argv[0] in ("python", "py") else argv[0], *argv[1:]]
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
-                               env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+                               env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}, check=False)
             out = r.stdout + r.stderr
         except (OSError, subprocess.TimeoutExpired) as exc:
             out = f"{type(exc).__name__}: {exc}"
@@ -1848,7 +1891,7 @@ def load_mechanisms(path: Path | None = None) -> dict[str, dict]:
     return out
 
 
-def auto_mechanisms(lib: "Library", vocab: dict[str, str], have: set[str], k: int = 3) -> list[dict]:
+def auto_mechanisms(lib: Library, vocab: dict[str, str], have: set[str], k: int = 3) -> list[dict]:
     """v14 (fairness and sharing): a mechanism line for every skill without one, by one rule for all. `does` is the
     first sentence of its description; `tags` are the operation tags whose meaning shares the most rare words with
     the description (idf over the whole library, so 'use', 'skill' and 'when' count for little). No world line: an
@@ -1860,7 +1903,7 @@ def auto_mechanisms(lib: "Library", vocab: dict[str, str], have: set[str], k: in
         for w in toks:
             df[w] = df.get(w, 0) + 1
     N = max(1, len(docs))
-    idf = lambda w: math.log(1 + N / (1 + df.get(w, 0)))  # noqa: E731
+    idf = lambda w: math.log(1 + N / (1 + df.get(w, 0)))
     tag_words = {t: set(lib.fs._tokens(t.replace("-", " ") + " " + meaning)) for t, meaning in vocab.items()}
     out = []
     for s in lib.skills:
@@ -1902,7 +1945,7 @@ def infer_tags(text: str, vocab: dict[str, str], tokens=None, k: int = 2, floor:
         for w in ws:
             df[w] = df.get(w, 0) + 1
     N = max(1, len(tag_words))
-    idf = lambda w: math.log(1 + N / (1 + df.get(w, 0)))  # noqa: E731
+    idf = lambda w: math.log(1 + N / (1 + df.get(w, 0)))
     cw = set(tokens(text))
     scored = sorted(((sum(idf(w) for w in cw & ws), t) for t, ws in tag_words.items()), reverse=True)
     return [(t, round(s, 2), vocab[t]) for s, t in scored[:k] if s >= floor]
@@ -2143,7 +2186,7 @@ def scout_record(rows: list[dict]) -> dict[str, tuple[int, int]]:
 CARDS_RANK = False   # set only after bench E29 shows card ranking is at least as good as the fused ranking
 
 
-PERSONA_RX = re.compile(r"Reasons from (.+?)(?: through (.+?))? while (?:[^.]*?\band )?treating (.+?) as first-class failure modes", re.S)
+PERSONA_RX = re.compile(r"Reasons from (.+?)(?: through (.+?))? while (?:[^.]*?\band )?treating (.+?) as first-class failure modes", re.DOTALL)
 
 
 def load_cards(path: Path | None = None) -> dict[str, dict]:
@@ -2171,7 +2214,7 @@ def persona_card(name: str, desc: str, md: Path | None) -> dict | None:
     m = PERSONA_RX.search(desc)
     if not m:
         return None
-    split = lambda s: [x.strip(" ,.;") for x in re.split(r",\s*(?:and\s+)?|\s+and\s+", s) if x.strip(" ,.;")]  # noqa: E731
+    split = lambda s: [x.strip(" ,.;") for x in re.split(r",\s*(?:and\s+)?|\s+and\s+", s) if x.strip(" ,.;")]
     foundations, tools, fails = m.group(1).strip(), (m.group(2) or "").strip(), m.group(3).strip()
     tools = tools or foundations                           # some profiles fold the tools into the foundations clause
     body = md.read_text(encoding="utf-8", errors="replace") if md and md.is_file() else ""
@@ -2187,7 +2230,7 @@ def persona_card(name: str, desc: str, md: Path | None) -> dict | None:
             "tool": False, "skill_sha": skill_sha(md) if md and md.is_file() else None}
 
 
-def stamp_cards(lib: "Library", path: Path | None = None) -> dict:
+def stamp_cards(lib: Library, path: Path | None = None) -> dict:
     """v17 (scientific-agents' version bump on body change): write skill_sha (sha of the SKILL.md) into every card so
     `doctor` can say which cards are STALE (the skill changed since the card was written). Only the sha key is touched."""
     f = path or (HERE / "cards" / "cards.jsonl")
@@ -2209,7 +2252,7 @@ def stamp_cards(lib: "Library", path: Path | None = None) -> dict:
     return {"stamped": stamped, "stale": stale, "missing_skill": missing}
 
 
-def stale_cards(lib: "Library", cards: dict[str, dict]) -> dict:
+def stale_cards(lib: Library, cards: dict[str, dict]) -> dict:
     """{stale: [names whose skill changed since the card's skill_sha], unstamped: n, ok: n}."""
     stale, unstamped, ok = [], 0, 0
     for n, c in cards.items():
@@ -2254,7 +2297,7 @@ def parse_fit_judgments(words: list[str]) -> tuple[dict[str, bool] | None, list[
     j: dict[str, bool] = {}
     rest = []
     for w in words:
-        m = re.fullmatch(r"(kind|question|assumes|used)=(yes|no|y|n)", w, re.I)
+        m = re.fullmatch(r"(kind|question|assumes|used)=(yes|no|y|n)", w, re.IGNORECASE)
         if m:
             j[m.group(1).lower()] = m.group(2).lower().startswith("y")
         else:
@@ -2429,18 +2472,18 @@ def is_checker(name: str, desc: str) -> bool:
 TOOL_BONUS = True      # set per score from the task's kind; creative kinds judge documents and tools alike
 KINDS_ON = True        # eval --no-kinds measures the library as if every task were analytical
 TASK_KINDS = {   # kind -> markers in the task's own words; the kind with most hits leads, ANALYZE when none
-    "ANALYZE": re.compile(r"\b(analy[sz]e|measure|test|check|verify|audit|compare|estimate|statistic\w*|signal|backtest|metric|prove|detect|count|rank|honest|real)\b", re.I),
-    "BUILD": re.compile(r"\b(build|implement|code|refactor|fix|debug|deploy|install|automate|pipeline|script|module|api|function|class|tool)\b", re.I),
-    "CREATE": re.compile(r"\b(creative\w*|brainstorm|invent|imagine|story|stories|poem|song|lyric|art|ideas?|novel|draw|compose|sketch|illustrat\w*|fascinat\w*|inspir\w*|metaphor|name for|slogan)\b", re.I),
-    "ROLEPLAY": re.compile(r"\b(role[- ]?play|act as|pretend|persona|character|in character|play the|voice of|dialogue|improv\w*|scene|npc|game master|dungeon|interview me|be my)\b", re.I),
-    "WRITE": re.compile(r"\b(write|draft|essay|email|letter|blog|article|report|summar\w*|rewrite|edit|proofread|copy|memo|headline|caption)\b", re.I),
-    "TEACH": re.compile(r"\b(teach|explain|learn|tutor|lesson|understand|beginner|guide|walk me through|why does|how does|eli5|course|quiz me)\b", re.I),
-    "DECIDE": re.compile(r"\b(decide|choose|options?|trade-?offs?|should (i|we)|plan|roadmap|priorit\w*|strategy|risk|budget|which one)\b", re.I),
-    "RESEARCH": re.compile(r"\b(research|sources?|cite|literature|papers?|survey|investigate|background|history of|what is known|compare vendors)\b", re.I),
-    "COMMUNICATE": re.compile(r"\b(reply|respond|negotiat\w*|persuad\w*|pitch|present\w*|slides?|deck|meeting|audience|stakeholder|announce|apolog\w*)\b", re.I),
-    "OPERATE": re.compile(r"\b(schedule|monitor|cron|job|server|backup|migrate|restore|ops|incident|alert|nightly|restart)\b", re.I),
-    "DATA": re.compile(r"\b(csv|json|spreadsheet|sql|table|dataset|chart|plot|dashboard|visuali[sz]\w*|clean the data|ingest|parse)\b", re.I),
-    "PLAY": re.compile(r"\b(fun|game|puzzle|riddle|joke|trivia|play with|for laughs|bedtime)\b", re.I),
+    "ANALYZE": re.compile(r"\b(analy[sz]e|measure|test|check|verify|audit|compare|estimate|statistic\w*|signal|backtest|metric|prove|detect|count|rank|honest|real)\b", re.IGNORECASE),
+    "BUILD": re.compile(r"\b(build|implement|code|refactor|fix|debug|deploy|install|automate|pipeline|script|module|api|function|class|tool)\b", re.IGNORECASE),
+    "CREATE": re.compile(r"\b(creative\w*|brainstorm|invent|imagine|story|stories|poem|song|lyric|art|ideas?|novel|draw|compose|sketch|illustrat\w*|fascinat\w*|inspir\w*|metaphor|name for|slogan)\b", re.IGNORECASE),
+    "ROLEPLAY": re.compile(r"\b(role[- ]?play|act as|pretend|persona|character|in character|play the|voice of|dialogue|improv\w*|scene|npc|game master|dungeon|interview me|be my)\b", re.IGNORECASE),
+    "WRITE": re.compile(r"\b(write|draft|essay|email|letter|blog|article|report|summar\w*|rewrite|edit|proofread|copy|memo|headline|caption)\b", re.IGNORECASE),
+    "TEACH": re.compile(r"\b(teach|explain|learn|tutor|lesson|understand|beginner|guide|walk me through|why does|how does|eli5|course|quiz me)\b", re.IGNORECASE),
+    "DECIDE": re.compile(r"\b(decide|choose|options?|trade-?offs?|should (i|we)|plan|roadmap|priorit\w*|strategy|risk|budget|which one)\b", re.IGNORECASE),
+    "RESEARCH": re.compile(r"\b(research|sources?|cite|literature|papers?|survey|investigate|background|history of|what is known|compare vendors)\b", re.IGNORECASE),
+    "COMMUNICATE": re.compile(r"\b(reply|respond|negotiat\w*|persuad\w*|pitch|present\w*|slides?|deck|meeting|audience|stakeholder|announce|apolog\w*)\b", re.IGNORECASE),
+    "OPERATE": re.compile(r"\b(schedule|monitor|cron|job|server|backup|migrate|restore|ops|incident|alert|nightly|restart)\b", re.IGNORECASE),
+    "DATA": re.compile(r"\b(csv|json|spreadsheet|sql|table|dataset|chart|plot|dashboard|visuali[sz]\w*|clean the data|ingest|parse)\b", re.IGNORECASE),
+    "PLAY": re.compile(r"\b(fun|game|puzzle|riddle|joke|trivia|play with|for laughs|bedtime)\b", re.IGNORECASE),
 }
 KIND_PRIORITY = ("ROLEPLAY", "CREATE", "PLAY", "TEACH", "WRITE", "COMMUNICATE", "DATA", "OPERATE", "RESEARCH", "BUILD", "DECIDE", "ANALYZE")
 CREATIVE_KINDS = {"CREATE", "ROLEPLAY", "WRITE", "TEACH", "COMMUNICATE", "PLAY"}      # no tool bias, a critic not a checker
@@ -2453,30 +2496,30 @@ KIND_PHASES = {     # the work's phases per kind; analytical kinds keep UNDERSTA
     "PLAY": ("SETUP", "PLAY", "SCORE", "ENCORE"),
 }
 EXTRA_ROLES = {     # how a skill's name and first sentence show which of the new phases it serves
-    "FRAME": re.compile(r"\b(brief|purpose|frame|read|reads|understand|presuppos\w*|lens|view|eye|subject)\b", re.I),
-    "GENERATE": re.compile(r"\b(generat\w*|brainstorm|idea|ideas|invent|breed|cross|combine|dream|free|recombin\w*|sweep|forge|kingdom|association)\b", re.I),
-    "SELECT": re.compile(r"\b(rank|choose|pick|score|vote|tie|tournament|ladder|novelty|jury|council|select)\b", re.I),
-    "POLISH": re.compile(r"\b(edit|polish|refine|rewrite|strip|squash|plain|clarity|rhythm|shorten|caption|audience)\b", re.I),
-    "CAST": re.compile(r"\b(persona|character|role|roles|voice|audience|actor|outsider|council|stakeholder|tribe)\b", re.I),
-    "VOICE": re.compile(r"\b(rewrite|first-person|second-person|tone|mood|genre|voice|valence|register|style)\b", re.I),
-    "PLAY": re.compile(r"\b(play|game|turn|scene|dialogue|improv\w*|chess|swiss|arena|round|evolution)\b", re.I),
-    "DEBRIEF": re.compile(r"\b(report|receipt|reflect|summar\w*|lesson|scar|ledger|epiphany|log)\b", re.I),
-    "BRIEF": re.compile(r"\b(brief|purpose|audience|read|reads|ask|intent|subtext|presuppos\w*)\b", re.I),
-    "DRAFT": re.compile(r"\b(write|writes|draft|generat\w*|compose|rewrite|splice|template|genre)\b", re.I),
-    "CRITIQUE": re.compile(r"\b(critic\w*|review|skeptic|devil\w*|steelman|expert|flag|check|jargon|smell|confabulat\w*|opponent|inner)\b", re.I),
-    "DELIVER": re.compile(r"\b(report|send|post|land|deliver|receipt|publish|mailbox|handoff|hand-off|plain)\b", re.I),
-    "LEVEL": re.compile(r"\b(beginner|novice|level|jargon|reading|grade|apprentice|over-the-shoulder|plain)\b", re.I),
-    "EXPLAIN": re.compile(r"\b(explain|plain|metaphor|analog\w*|concept|teach|terms|lexicon|walkthrough|why)\b", re.I),
-    "PRACTISE": re.compile(r"\b(quiz|exercise|probe|test|example|drill|leitner|recheck|flash)\b", re.I),
+    "FRAME": re.compile(r"\b(brief|purpose|frame|read|reads|understand|presuppos\w*|lens|view|eye|subject)\b", re.IGNORECASE),
+    "GENERATE": re.compile(r"\b(generat\w*|brainstorm|idea|ideas|invent|breed|cross|combine|dream|free|recombin\w*|sweep|forge|kingdom|association)\b", re.IGNORECASE),
+    "SELECT": re.compile(r"\b(rank|choose|pick|score|vote|tie|tournament|ladder|novelty|jury|council|select)\b", re.IGNORECASE),
+    "POLISH": re.compile(r"\b(edit|polish|refine|rewrite|strip|squash|plain|clarity|rhythm|shorten|caption|audience)\b", re.IGNORECASE),
+    "CAST": re.compile(r"\b(persona|character|role|roles|voice|audience|actor|outsider|council|stakeholder|tribe)\b", re.IGNORECASE),
+    "VOICE": re.compile(r"\b(rewrite|first-person|second-person|tone|mood|genre|voice|valence|register|style)\b", re.IGNORECASE),
+    "PLAY": re.compile(r"\b(play|game|turn|scene|dialogue|improv\w*|chess|swiss|arena|round|evolution)\b", re.IGNORECASE),
+    "DEBRIEF": re.compile(r"\b(report|receipt|reflect|summar\w*|lesson|scar|ledger|epiphany|log)\b", re.IGNORECASE),
+    "BRIEF": re.compile(r"\b(brief|purpose|audience|read|reads|ask|intent|subtext|presuppos\w*)\b", re.IGNORECASE),
+    "DRAFT": re.compile(r"\b(write|writes|draft|generat\w*|compose|rewrite|splice|template|genre)\b", re.IGNORECASE),
+    "CRITIQUE": re.compile(r"\b(critic\w*|review|skeptic|devil\w*|steelman|expert|flag|check|jargon|smell|confabulat\w*|opponent|inner)\b", re.IGNORECASE),
+    "DELIVER": re.compile(r"\b(report|send|post|land|deliver|receipt|publish|mailbox|handoff|hand-off|plain)\b", re.IGNORECASE),
+    "LEVEL": re.compile(r"\b(beginner|novice|level|jargon|reading|grade|apprentice|over-the-shoulder|plain)\b", re.IGNORECASE),
+    "EXPLAIN": re.compile(r"\b(explain|plain|metaphor|analog\w*|concept|teach|terms|lexicon|walkthrough|why)\b", re.IGNORECASE),
+    "PRACTISE": re.compile(r"\b(quiz|exercise|probe|test|example|drill|leitner|recheck|flash)\b", re.IGNORECASE),
     "CHECK": CHECKER,
-    "SETUP": re.compile(r"\b(setup|set up|rules|seed|cast|symmetry|pairing|arena|tournament)\b", re.I),
-    "SCORE": re.compile(r"\b(score|rank|ladder|rating|tournament|chess|swiss|elo|novelty)\b", re.I),
-    "ENCORE": re.compile(r"\b(encore|next|again|momentum|resume|continue|chain)\b", re.I),
+    "SETUP": re.compile(r"\b(setup|set up|rules|seed|cast|symmetry|pairing|arena|tournament)\b", re.IGNORECASE),
+    "SCORE": re.compile(r"\b(score|rank|ladder|rating|tournament|chess|swiss|elo|novelty)\b", re.IGNORECASE),
+    "ENCORE": re.compile(r"\b(encore|next|again|momentum|resume|continue|chain)\b", re.IGNORECASE),
 }
 ALL_ROLES = {**ROLES, **EXTRA_ROLES}
-CRITIC = re.compile(r"\b(critic\w*|devil\w*|steelman|skeptic|opponent|review\w*|expert|jury|inner)\b", re.I)
+CRITIC = re.compile(r"\b(critic\w*|devil\w*|steelman|skeptic|opponent|review\w*|expert|jury|inner)\b", re.IGNORECASE)
 SIDE_EFFECTS = re.compile(r"\b(delete|deletes|remove|removes|overwrite|overwrites|push|pushes|post|posts|send|sends|publish|publishes|"
-                          r"install|uninstall|commit|commits|order|orders|trade|trades|pay|pays|email|emails|drop|drops|wipe|rm)\b", re.I)
+                          r"install|uninstall|commit|commits|order|orders|trade|trades|pay|pays|email|emails|drop|drops|wipe|rm)\b", re.IGNORECASE)
 
 
 def task_kinds(task: str) -> list[tuple[str, int]]:
@@ -2582,14 +2625,14 @@ def context(task_words: set[str], tokens) -> list[str]:
                 for c in ids:
                     phase_of[c] = mm.group(1)
     cards = []
-    for mm in re.finditer(r"^### (GT\d+): ([^\n]+)", text, re.M):
+    for mm in re.finditer(r"^### (GT\d+): ([^\n]+)", text, re.MULTILINE):
         w = set(tokens(mm.group(2)))
         hit = len(w & task_words)
         if hit:
             cards.append((hit / (len(w) ** 0.5), mm.group(1), mm.group(2)[:70]))
     named = set(re.findall(r"GT\d+", " ".join(task_words).upper()))
     for c in named:
-        mm = re.search(rf"^### {c}: ([^\n]+)", text, re.M)
+        mm = re.search(rf"^### {c}: ([^\n]+)", text, re.MULTILINE)
         if mm:
             cards.append((99.0, c, mm.group(1)[:70]))
     best: dict[str, tuple] = {}
@@ -2663,8 +2706,8 @@ def reflect(rows: list[dict], top: int = 8) -> list[str]:
     pooled = Counter(n for r in rows if r.get("kind") == "SCORE" for n in r.get("pool_names", []))
     chosen = {n for r in rows if r.get("kind") == "SCORE" for n in r.get("chosen", [])}
     wall = [(n, c) for n, c in pooled.most_common() if n not in chosen and c >= 2][:top]
-    L = [f"REFLECT over {sum(1 for r in rows if r.get('kind') == 'SCORE')} runs, "
-         f"{sum(1 for r in rows if r.get('kind') == 'RATE')} ratings, {sum(1 for r in rows if r.get('kind') == 'READ')} reads"]
+    L = [(f"REFLECT over {sum(1 for r in rows if r.get('kind') == 'SCORE')} runs, "
+          f"{sum(1 for r in rows if r.get('kind') == 'RATE')} ratings, {sum(1 for r in rows if r.get('kind') == 'READ')} reads")]
     L.append("proved useful: " + (", ".join(f"{n} x{c}" for n, c in useful.most_common(top)) or "nothing rated useful yet"))
     L.append("traps learned (antibodies): " + ("; ".join(f"{n} ({w[:60]})" if w else n for n, w in wrong) or "none yet"))
     L.append("wallflowers (in the pool again and again, never chosen; try one): "
@@ -2713,7 +2756,6 @@ def encore(rows: list[dict], run: str | None = None) -> list[str]:
     cmd = (s.get("first_cmds") or {}).get(nxt[1])
     L.append(f"NEXT: {nxt[0]} with {nxt[1]}" + (f": run `{cmd}`" if cmd else ": open its SKILL.md") +
              f"; then `maestro.py read {s['run']} {nxt[1]}` and `maestro.py rate {s['run']} {nxt[1]} <rating>`")
-    chosen_ever = {n for r in rows if r.get("kind") == "SCORE" for n in r.get("chosen", [])}
     on_agenda = {name for _, name in s["agenda"]}
     pick = thompson_pick(rows, s, exclude=on_agenda)
     if pick:
@@ -2808,11 +2850,14 @@ def breed(rows: list[dict], run: str, mechs: dict, family, root: Path, task_text
     b = next((n for n in chosen[1:] if family(n) != family(a)), None) if a else None
     if not (a and b):
         return {"error": "need two picks from different families with mechanism lines"}
+    need = ("cross-breed/breed_plan.py", "word-sex/word_sex.py", "skill-foundry/foundry.py")
+    if missing := [n.split("/")[0] for n in need if not (root / n).is_file()]:     # sibling skills, not extras
+        return {"error": f"breed needs the sibling skills {', '.join(missing)} in the library ({root})"}
     cb = _load(root / "cross-breed" / "breed_plan.py", "breed_plan")
     ws = _load(root / "word-sex" / "word_sex.py", "word_sex")
     fd = _load(root / "skill-foundry" / "foundry.py", "foundry")
     op = (cb.choose_operator("skills", "1:1") or [{"operator": "graft"}])[0]["operator"]
-    seg = lambda n: max(n.split("-"), key=len)  # noqa: E731  (the most telling part of a hyphenated name)
+    seg = lambda n: max(n.split("-"), key=len)
     existing = {p.name for p in root.iterdir() if p.is_dir()}
     kids = [k for k, _ in ws.breed(seg(a), seg(b), 8) if re.fullmatch(r"[a-z][a-z0-9]{2,}", k) and k not in existing]
     name = kids[0] if kids else f"{seg(a)}-{seg(b)}"
@@ -2959,8 +3004,8 @@ def forward(rows: list[dict]) -> list[str]:
     rated = sorted(set(appr) | set(rej), key=lambda x: scores[x].get("t", 0))
     live = [x for x in rated if scores[x].get("finder_top") is not None]
     legacy = [x for x in rated if scores[x].get("finder_top") is None]
-    L = [f"FORWARD LOG: {len(live)} rated run(s) with frozen picks, {len(legacy)} LEGACY (rated before v9a: no finder "
-         f"baseline). Approved = {OWNER} topic >= 4 (or a menu he rated >= 4); rejected = <= 1."]
+    L = [(f"FORWARD LOG: {len(live)} rated run(s) with frozen picks, {len(legacy)} LEGACY (rated before v9a: no finder "
+          f"baseline). Approved = {OWNER} topic >= 4 (or a menu he rated >= 4); rejected = <= 1.")]
     m1 = m3 = f1 = f3 = 0
     b = c = 0
     wins = {k: 0 for k in "ABCDE"}
@@ -3019,10 +3064,10 @@ def stay_inside(task: str) -> list[str]:
 # came back NEEDED. So score() asks first whether a sheet is worth its cost, and says so in a few lines when it is not.
 TRIAGE_OPEN = re.compile(r"\b(?:design|invent|imagine|brainstorm|explore|new (?:way|kind|idea)s?|architect\w*|strategy|"
                          r"rethink|reinvent|creative|fascinat\w*|which approach|how (?:should|could|would) (?:we|i)|"
-                         r"what (?:should|could) we)\b", re.I)
+                         r"what (?:should|could) we)\b", re.IGNORECASE)
 TRIAGE_ASK = re.compile(r"^\s*(?:is there|are there|do (?:we|i) have|which|what)\b[^.?]{0,40}\bskills?\b|\bskills? (?:for|to)\b",
-                        re.I)
-CARD_ID = re.compile(r"\b(GT\d{1,4}|H-[A-G])\b", re.I)
+                        re.IGNORECASE)
+CARD_ID = re.compile(r"\b(GT\d{1,4}|H-[A-G])\b", re.IGNORECASE)
 # 2026-10-26, a review from another session: the whisper labelled peer messages and background-task notices FULL.
 # A peer session's message, a task or agent notice, a reminder, a compaction summary or an interrupt marker is not
 # the user's ask, so the whisper says nothing to it. The tuple is hindsight.py's and phase.py's (the selftest checks
@@ -3044,12 +3089,12 @@ def card_spec(card: str, project: Path | None) -> bool:
     if not plan.is_file():
         return False
     text = plan.read_text(encoding="utf-8", errors="replace")
-    m = re.search(rf"^### {re.escape(card.upper())}:.*?(?=^### |\Z)", text, re.M | re.S)
+    m = re.search(rf"^### {re.escape(card.upper())}:.*?(?=^### |\Z)", text, re.MULTILINE | re.DOTALL)
     if not m:
         return False
     body = m.group(0)
-    return bool(re.search(r"^\s*-\s*red\b|red tests?\b", body, re.M | re.I)) and bool(
-        re.search(r"^- (?:files|outcome|contract)\b", body, re.M | re.I))
+    return bool(re.search(r"^\s*-\s*red\b|red tests?\b", body, re.MULTILINE | re.IGNORECASE)) and bool(
+        re.search(r"^- (?:files|outcome|contract)\b", body, re.MULTILINE | re.IGNORECASE))
 
 
 def triage(task: str, project: Path | None = None) -> tuple[str, str]:
@@ -3068,7 +3113,7 @@ def triage(task: str, project: Path | None = None) -> tuple[str, str]:
     return "FULL", "a task worth a cycle: no card spells it out"
 
 
-def findable(lib: "Library", name: str) -> list[str]:
+def findable(lib: Library, name: str) -> list[str]:
     """v14, for any skill author: how findable is this skill, and what would make it fairer to find? Checks only
     what the Maestro actually reads: the description (every reading starts there), a SKILL.md body, links to other
     skills, a meaning line, and whether the skill comes back for queries written from its own purpose."""
@@ -3083,14 +3128,14 @@ def findable(lib: "Library", name: str) -> list[str]:
     mech = load_mechanisms().get(name)
     first = re.split(r"(?<=[.!?])\s", d.strip(), maxsplit=1)[0]
     L = [f"FINDABLE {name} ({(lib.source.get(name, '') or 'custom')}):",
-         f"  description {len(d)} chars (library median {int(med)}); body {len(body)} chars; "
-         f"links {len(lib.graph().get(name, ()))}; meaning line {'hand-written' if mech and not mech.get('auto') else 'auto' if mech else 'none'}"]
+         (f"  description {len(d)} chars (library median {int(med)}); body {len(body)} chars; "
+          f"links {len(lib.graph().get(name, ()))}; meaning line {'hand-written' if mech and not mech.get('auto') else 'auto' if mech else 'none'}")]
     fixes = []
     if len(d) < 0.5 * med:
         fixes.append("the description is under half the median length: say what it does, on what input, and when to use it")
     if (len(first) < 60 and " - " in first) or len(first.split()) <= 4:   # "Assayer - CODE type 7 of 16."
         fixes.append(f"the first sentence ('{first[:50]}') is a label, not a job: start with the verb it performs")
-    if not re.search(r"\b(use (this|it|when)|whenever|when (you|the user|max))\b", d, re.I):
+    if not re.search(r"\b(use (this|it|when)|whenever|when (you|the user|max))\b", d, re.IGNORECASE):
         fixes.append("no trigger phrase ('Use this when ...'): routers match on those words")
     if mech and not mech.get("tags"):
         fixes.append("it shares no distinctive word with any operation tag: name the operation (rank, merge, detect, ...)")
@@ -3107,19 +3152,18 @@ def findable(lib: "Library", name: str) -> list[str]:
     return L
 
 
-STEP_WORDS = re.compile(r"\b(then|next|after that|finally|lastly|step \d)\b", re.I)
+STEP_WORDS = re.compile(r"\b(then|next|after that|finally|lastly|step \d)\b", re.IGNORECASE)
 NEG_TRIGGER = re.compile(r"\b(not for|does not (activate|apply|fire|trigger)|do not use (it |this )?(for|when)|never for|"
-                         r"not when|skip (it|this) when|unlike)\b", re.I)
+                         r"not when|skip (it|this) when|unlike)\b", re.IGNORECASE)
 PERSONAL_PATH = re.compile(r"(?i)(?:[A-Za-z]:\\|/)(?:Users|home)[\\/][A-Za-z0-9._-]+[\\/]")
 LINK_RX = re.compile(r"\]\(([^)\s#]+)\)|`(?:python|py)\s+((?:scripts|references|\w+)[\\/][\w./\\-]+\.py)")
 
 
-def findable_v17(lib: "Library", name: str, d: str, body: str, md: Path | None) -> list[str]:
+def findable_v17(lib: Library, name: str, d: str, body: str, md: Path | None) -> list[str]:
     """v17 fixes borrowed from the shared repos, each a FIX hint, never a gate: description = WHEN, not WHAT
     (science-superpowers writing-science-skills); a negative trigger (prompt-master); generic-swap filler score
     (scientific-agents CONTRIBUTING 574-589); dead links and personal paths (scientific-agent-skills structure.py);
     read-cost warning (its 500-line cap); near-duplicate body (scientific-agents validate.py 476-498)."""
-    import statistics
     fixes = []
     if len(STEP_WORDS.findall(d)) >= 2:
         fixes.append("the description reads like the workflow ('then ... then ...'): say WHEN to use it, not what it does step by "
@@ -3409,6 +3453,21 @@ def unique_needed(needed: list[dict]) -> list[dict]:
     return [x for x in needed if not (x["concept"] in seen or seen.add(x["concept"]))]
 
 
+def pick_cmd(c: dict) -> str | None:
+    """A pick's first command: the one its SKILL.md shows, else its card's probe (v20.1.6: one rule for both sheets)."""
+    probe = (c.get("card") or {}).get("probe")
+    return c.get("first_cmd") or (probe and probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent)))
+
+
+def invoke_step(c: dict) -> str:
+    """How to run a pick with no command: by the name Claude Code runs it under (PLUGIN:NAME for a plugin's skill)."""
+    return f"invoke /{c.get('invoke') or c['name']} (the Skill tool; it has no script of its own)"
+
+
+def invoke_name(lib, name: str) -> str:
+    return getattr(lib, "invoke", {}).get(name, name)
+
+
 def render_brief(sheet: dict) -> str:
     """The default sheet (v11): what is needed to act, in about 20 lines. Every detail is still in `--full`."""
     if not sheet.get("concepts") and not sheet.get("keywords_only"):
@@ -3421,6 +3480,9 @@ def render_brief(sheet: dict) -> str:
            or (c.startswith("plan card") and c.split()[2].upper() in named)][:3]   # a card the task names, not a word match
     L += ["CONTEXT " + c for c in ctx]
     L += sheet.get("mode_lines") or []                      # 2026-10-24: the mode, how to use the picks, ASK FIRST
+    if sheet.get("meaning_off"):                            # v20.1.6 (warning 2): say it, never rank by words in silence
+        L.append(f"MEANING OFF: the {', '.join(sheet['meaning_off'])} reading(s) did not run (no meaning model reachable "
+                 "from this Python), so these picks rest on the word readings. To turn them on: " + MEANING_SETUP)
     if sheet.get("stay_inside"):
         L.append("STAY INSIDE: " + " | ".join(sheet["stay_inside"])[:160])
     if not sheet["chosen"]:                               # v14: say why there is nothing, and what to do
@@ -3438,9 +3500,7 @@ def render_brief(sheet: dict) -> str:
     for i, c in enumerate(sheet["chosen"], 1):
         why = f"<{lane_of(c, i, best)}> " + ((c.get("role_added") and "verify role") or (c.get("cover") and f"cover: {c['cover'][:40]}") \
             or c.get("via") or c.get("when", ""))
-        probe = (c.get("card") or {}).get("probe")
-        cmd = c.get("first_cmd") or (probe and probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent))) \
-            or f"invoke /{c.get('invoke') or c['name']} (the Skill tool; it has no script of its own)"   # built-ins, plugins, guides
+        cmd = pick_cmd(c) or invoke_step(c)          # built-ins, plugins, guides: the invoke step
         L.append(f"  {i}. {c['name']:<28} {('[' + c['ballot'] + '] ') if c.get('ballot') else ''}{c.get('grade', 'S3')} "
                  f"{why[:60]}")
         L.append(f"       run: {cmd[:110]}")
@@ -3485,8 +3545,8 @@ def cost_report(rows: list[dict], last: int = 20) -> list[str]:
     fits = {(r["run"], r["skill"]) for r in rows if r.get("kind") == "FIT" and r.get("verdict") == "works"}
     runs = [r for r in rows if r.get("kind") == "SCORE"][-last:]
     worked = sum(1 for r in runs if any((r["run"], n) in fits for n in r.get("chosen", [])))
-    out = [f"COST over the last {last}: {len(sheets)} sheet(s) ~{sum(r['sheet'] for r in sheets)} tokens shown, "
-           f"~{sum(r['read'] for r in sheets)} to read every pick"]
+    out = [(f"COST over the last {last}: {len(sheets)} sheet(s) ~{sum(r['sheet'] for r in sheets)} tokens shown, "
+            f"~{sum(r['read'] for r in sheets)} to read every pick")]
     by = {v: sum(1 for r in tri if r["verdict"] == v) for v in ("SKIP", "QUICK", "FULL")}
     out.append(f"TRIAGE: {by['SKIP']} skipped, {by['QUICK']} quick, {by['FULL']} full; each skip saved ~9,000 tokens "
                "(a concept sheet plus its reading)")
@@ -3622,8 +3682,8 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
                 if nb not in names and nb in allr:
                     pool.append({**allr[nb], "via": f"graph neighbour of {c['name']}"})
                     names.add(nb)
-    self_ok, self_why = self_pick_allowed([n for n, _ in (meaning_rank(ranking_text(task), SELF_TOP, lib.root, st.d) or [])], st.d,
-                                          record=st.keep)
+    self_ok, _self_why = self_pick_allowed([n for n, _ in (meaning_rank(ranking_text(task), SELF_TOP, lib.root, st.d) or [])], st.d,
+                                          record=st.keep, task=task)
     pool = [c for c in pool if c["name"] != SELF or self_ok]   # 2026-10-24: itself only when the prompt is about choosing skills, rarely
     blocked = [c for c in pool if c["name"] in anti]       # immune memory: wrong on a similar task before
     pool = [c for c in pool if c["name"] not in anti]
@@ -3803,7 +3863,7 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
         c["kind_flag"] = kind_mismatch(c["name"], lib.desc.get(c["name"], ""), task) if KIND_FLAG_SHOWN else None
         c["max_types"] = ov.get(c["name"]) == "user-invocable-only"
         c["source"] = lib.source.get(c["name"], "")
-        c["invoke"] = getattr(lib, "invoke", {}).get(c["name"], c["name"])
+        c["invoke"] = invoke_name(lib, c["name"])
         c["switch_on"] = switch_on(c["name"], c["source"], ov, plug)
     plan_ctx = context(words | {w.upper() for w in re.findall(r"gt\d+", task.lower())}, lib.fs._tokens)
     phased = agenda(chosen, weigh(pool, stats_now, st.favourites()), lib.desc, phases)
@@ -3880,8 +3940,10 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
             "needed": needed, "mechs_loaded": len(mechs), "spark": spark, "inferred_ops": inferred_ops, "subject": subject,
             "concepts_inferred": concepts_inferred,
             "mode": msel["mode"]["name"] if msel else None,
-            "mode_lines": (lambda D: D.render(msel, D.ask_first(task, msel["mode"], subject)) if ASK_FIRST
-                           else D.render(msel, []))(_load(HERE / "modes.py", "modes")) if msel else [],
+            "meaning_off": sorted(lib.meaning_off | ({"mode"} if msel is None and not mode and (
+                meaning_model(st.d) is None or "meaning" in lib.meaning_off) else set())),
+            "mode_lines": (D.render(msel, D.ask_first(task, msel["mode"], subject) if ASK_FIRST else [])
+                           if msel and (D := _load(HERE / "modes.py", "modes")) else []),
             "ponder_debt": [r for r in ponder_debt(st.rows()) if r != run_id],
             "switched_off": switched_off, "ledger": str(st.ledger), "on_pc_only": on_pc_only,
             "ledger_shared": getattr(st, "shared", False), "charter": ch, "pick_note": pick_note, "task_limits": task_limits,
@@ -3890,13 +3952,16 @@ def score(lib: Library, st: State, task: str, top: int | None = None, graph: boo
 
 
 def render(sheet: dict) -> str:
-    L = [f"MAESTRO run {sheet['run']}: {sheet['pool']} considered (task read {len(sheet['readings'])} ways: "
-         f"{', '.join(sheet['readings'])}), {len(sheet['chosen'])} chosen, families {', '.join(sheet['families'])}"]
+    L = [(f"MAESTRO run {sheet['run']}: {sheet['pool']} considered (task read {len(sheet['readings'])} ways: "
+          f"{', '.join(sheet['readings'])}), {len(sheet['chosen'])} chosen, families {', '.join(sheet['families'])}")]
     if sheet.get("debt"):
         L.insert(0, f"AUDIT DEBT: {len(sheet['debt'])} earlier run(s) chose skills that were never rated "
                     f"(latest {', '.join(sheet['debt'][-3:])}); rate them or say they went unused")
     L[-1] = L[-1] + "  [ranking ORGANIZED, not VERIFIED: S1 useful on a similar task, S2 read at this version, S3 unread]"
     L += sheet.get("mode_lines") or []                      # 2026-10-24: the mode, how to use the picks, ASK FIRST
+    if sheet.get("meaning_off"):                            # v20.1.6 (warning 2): say it, never rank by words in silence
+        L.append(f"MEANING OFF: the {', '.join(sheet['meaning_off'])} reading(s) did not run (no meaning model reachable "
+                 "from this Python), so these picks rest on the word readings. To turn them on: " + MEANING_SETUP)
     ch = sheet.get("charter") or {}
     if ch.get("goals") or ch.get("limits"):
         L.append(f"PROJECT ({ch.get('source')}), read before choosing:")
@@ -3938,9 +4003,9 @@ def render(sheet: dict) -> str:
     def spark_lines() -> list[str]:
         if not sheet.get("spark"):
             return []
-        out = ["SPARK (how could this be INVENTED, not only checked? Read the operators against the task's meaning, "
-               "pick at least one skill, say in one line what it would create here, and run it on the subject; "
-               "fascination, not evidence):"]
+        out = [("SPARK (how could this be INVENTED, not only checked? Read the operators against the task's meaning, "
+                "pick at least one skill, say in one line what it would create here, and run it on the subject; "
+                "fascination, not evidence):")]
         out += [f"  {s['op']:<18} ({s['of']:>2}) " + ", ".join(n + ("*" if n in s["new"] else "") for n in s["members"])
                 for s in sheet["spark"]]
         return out + ["  (* never shown on a sheet before; full list of an operator: `maestro.py vocab` then the tag)"]
@@ -4064,9 +4129,8 @@ def render(sheet: dict) -> str:
              f"`maestro.py fit {sheet['run']} <skill> works|misfit \"why\"`. A skill whose input is a different kind of "
              "thing (a log, a series, code) than the subject is a misfit: drop it and take the next pick.")
     for c in sheet["chosen"]:
-        probe = (c.get("card") or {}).get("probe")
-        cmd = c.get("first_cmd") or (probe and probe.replace("{skill_dir}", str(Path(c["skill_md"]).parent)))
-        L.append(f"  {c['name']:<30} its command: {cmd or '(none in SKILL.md: read its tool section)'}"
+        cmd = pick_cmd(c)
+        L.append(f"  {c['name']:<30} its command: {cmd or '(none in SKILL.md) ' + invoke_step(c)}"
                  + (f"   <- {c['kind_flag']}" if c.get("kind_flag") else ""))
         if sheet.get("subject") and cmd:                    # v18: a runnable first try on the named subject
             L.append(f"       on the subject: maestro.py try {sheet['run']} {c['name']} --subject {sheet['subject']} -- "
@@ -4217,7 +4281,8 @@ def eval_ci(vec: list[int], n: int = 1000, seed: int = 7) -> dict:
 def eval_armed(lib: Library, st: State, k: int = 5, seed: int = 7) -> dict:
     """The tripwire: k planted probes whose prompt is a skill's own first sentence and whose answer is that skill.
     An eval that cannot find a skill from its own words is broken, whatever the held-out number says."""
-    import random, tempfile
+    import random
+    import tempfile
     rnd = random.Random(seed)
     cands = [s for s in lib.skills if s.get("tool") and len(s.get("desc", "")) > 80 and ":" not in s["name"]]
     picks = rnd.sample(cands, min(k, len(cands)))
@@ -4342,7 +4407,7 @@ def _selftest() -> bool:
           "splitter": {"does": "splits a whole into non overlapping kinds", "tags": ["partition"], "world": "sorting mail"},
           "ranker": {"does": "orders items by score", "tags": ["rank"], "world": "a league table"}}
     import string
-    tok = lambda s: [w for w in s.lower().translate(str.maketrans("", "", string.punctuation)).split() if len(w) > 2]  # noqa: E731
+    tok = lambda s: [w for w in s.lower().translate(str.maketrans("", "", string.punctuation)).split() if len(w) > 2]
     cs = parse_concepts("overlay-config: one profile per type over a shared self; world: bee larvae fed differently; "
                         "frobnicate: zzz", voc)
     ok.append(len(cs) == 3 and cs[0]["tags"] == ["overlay-config"] and cs[1]["analogy"] and cs[2]["unknown"] == ["frobnicate"])
@@ -4482,7 +4547,7 @@ def _selftest() -> bool:
               and taste_verdict({"HALF": 0.5, "SALAD": 0.93, "BLANKED": 0.2}) == "LEXICAL"
               and taste_verdict({"HALF": 0.4, "SALAD": 0.3, "BLANKED": 0.2}) == "READS_IT")
     cc = controls("alpha beta gamma\ndelta epsilon\nzeta eta theta iota\nkappa", seed=1)
-    ok.append(sorted(cc["SALAD"].split()) == sorted("alpha beta gamma delta epsilon zeta eta theta iota kappa".split())
+    ok.append(sorted(cc["SALAD"].split()) == sorted(["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"])
               and len(cc["BLANKED"].splitlines()) == 4 and "alpha" not in cc["BLANKED"]
               and len(cc["HALF"].splitlines()) == 2)
     cd = {"a": {"questions": ["FIND_GAPS"], "input": {"kind": "PLAN"}}, "b": {"questions": ["MEASURE"], "input": {"kind": "SERIES"}},
@@ -4559,6 +4624,20 @@ def _selftest() -> bool:
     ok.append(len(br.splitlines()) <= 30 and br.splitlines()[-1].startswith("COST sheet ~") and "r0" in br
               and "python s7.py" in br and "GT42" not in br and "GT9 (phase 3)" in br and br.count("NEEDED:") == 3
               and "FINDER ALSO SAYS (judge these too): zz" in br)
+    # v20.1.6 (warning 2): readings that found no meaning model are named on the sheet, with the setup line
+    off = render_brief({**fake, "meaning_off": ["mode", "personal"]})
+    ok.append("MEANING OFF: the mode, personal reading(s) did not run" in off and MEANING_SETUP in off
+              and "MEANING OFF" not in br and len(off.splitlines()) <= 31)
+    saved_nm = os.environ.get("MAESTRO_NO_MEANING")
+    os.environ["MAESTRO_NO_MEANING"] = "1"
+    try:
+        ok.append(meaning_model() is None
+                  and (_MEANING.get("mod") is None or getattr(_MEANING["mod"], "SETUP", MEANING_SETUP) == MEANING_SETUP))
+    finally:
+        if saved_nm is None:
+            os.environ.pop("MAESTRO_NO_MEANING", None)
+        else:
+            os.environ["MAESTRO_NO_MEANING"] = saved_nm
     # v11 debt and cost: an unrated run is owed, a closed one is not; the cost report counts triage verdicts
     rows = [{"kind": "SCORE", "run": "u", "chosen": ["a"], "t": 0}, {"kind": "SCORE", "run": "c", "chosen": ["a"], "t": 0},
             {"kind": "CLOSE", "run": "c"}, {"kind": "TRIAGE", "verdict": "SKIP"}, {"kind": "TRIAGE", "verdict": "QUICK"},
@@ -4604,7 +4683,7 @@ def _selftest() -> bool:
     nop = render_brief({"run": "r1", "task": "月次売上のグラフを作ってください", "pool": 0, "chosen": [], "context": [],
                         "concepts": [{"text": "x", "analogy": False, "tags": [], "unknown": []}]})
     ok.append("NO PICKS" in nop and "another language" in nop)
-    import tempfile                                                         # v10: cloud sessions
+    import tempfile  # v10: cloud sessions
     with tempfile.TemporaryDirectory() as tmp:
         t = Path(tmp)
         (t / "skill-finder").mkdir()
@@ -4663,6 +4742,26 @@ def _selftest() -> bool:
         ok.append(ulib == ([h3 / "skills"], [h3 / "skills"], []))         # row 7c: the user's skills join a pack root once
         ok.append("one" in L3.desc and "pk:one" not in L3.desc and L3.invoke.get("one") == "pk:one"
                   and [x["concept"] for x in unique_needed([{"concept": "a"}, {"concept": "b"}, {"concept": "a"}])] == ["a", "b"])
+        # v20.1.6 (warning 3): the invoke step as both sheets show it: a command wins, then the plugin name, then the name
+        picks = [{"name": "has-cmd", "first_cmd": "python has.py --x", "skill_md": "nope"},
+                 {"name": "one", "invoke": invoke_name(L3, "one"), "skill_md": "nope"},
+                 {"name": "bare", "invoke": invoke_name(L3, "bare"), "skill_md": "nope"},
+                 {"name": "probed", "card": {"probe": "python {skill_dir}/p.py", "questions": ["q"], "input": {"kind": "k", "shape": "s"},
+                                 "assumes": [], "not_for": "n"}, "skill_md": str(t / "pr" / "SKILL.md")}]
+        picks = [{**c, "when": "w", "total": 1, "fit": 1, "use": 0, "fasc": 0, "fav": 0, "sha": None} for c in picks]
+        sh3 = {"run": "r3", "task": "count gizmos", "pool": 4, "chosen": picks, "context": [], "readings": ["meaning"],
+               "families": [], "library": {"NEW": [], "CHANGED": [], "REMOVED": []}, "notes": [], "subject": "g.txt",
+               "concepts": [{"text": "gizmos", "analogy": False, "tags": [], "unknown": []}]}
+        b3, f3 = render_brief(sh3), render(sh3)
+        pp = str(t / "pr") + "/p.py"
+        ok.append(all(s in b3 for s in ("run: python has.py --x", "run: invoke /pk:one (the Skill tool; it has no script",
+                                        "run: invoke /bare (the Skill tool", "run: python " + pp[:60]))
+                  and all(s in f3 for s in ("its command: python has.py --x", "its command: (none in SKILL.md) invoke /pk:one",
+                                            "its command: (none in SKILL.md) invoke /bare", "its command: python " + pp))
+                  and "try r3 has-cmd --subject g.txt" in f3 and "try r3 one --subject" not in f3
+                  and "invoke /one " not in b3 + f3)
+        ok.append("one [USE]: w | invoke it as /pk:one or open its SKILL.md" in f3 and "invoke it as /bare" not in f3
+                  and "bare [USE]: w | open its SKILL.md" in f3 and "ASK IT 'python " + pp[:30] in f3 and "{skill_dir}" not in f3)
         lib_dir = t / "lib"                                                  # v12: standalone, health, built-ins
         for n, body in (("alpha-tool", "print('PASS')\nimport sys; sys.exit(0)\n"), ("beta-broken", "import sys; sys.exit(1)\n")):
             (lib_dir / n).mkdir(parents=True)
@@ -4678,7 +4777,7 @@ def _selftest() -> bool:
         ok.append("simplify" in L2.desc and L2.source.get("simplify") == "built-in" and not L2.skill_md("simplify").is_file())
         cd = t / "survey_cards"                                              # v17 survey: the cards and the asks reading
         cd.mkdir()
-        card = lambda n, v, asks: {"name": n, "does": f"{n} did it", "test": {"verdict": v, "result": "r"},  # noqa: E731
+        card = lambda n, v, asks: {"name": n, "does": f"{n} did it", "test": {"verdict": v, "result": "r"},
                                    "asks": asks, "not_asks": [], "overlaps": [], "side_effects": []}
         (cd / "alpha-tool.json").write_text(json.dumps(card("alpha-tool", "works", ["tally my gizmos per crate",
                                             "how many sprockets did we ship", "count the doohickeys"])), encoding="utf-8")
@@ -4723,6 +4822,58 @@ def _selftest() -> bool:
             finally:
                 globals()["meaning_rank"] = _mr
         ok.append(pick_count(_ask, _rows)[0] == 3 and _rows[0]["cap"] == 1.0)      # m0 (both), m1 0.6, m2 0.5; m3 0.43
+        with _tf.TemporaryDirectory() as _tds:              # 2026-10-28 warning 7: one record per prompt, no text kept
+            _sp = Path(_tds) / "self_picks.json"
+            _sp.write_text(json.dumps([True] * (SELF_MAX - 1)), encoding="utf-8")   # old bare records still count
+            _a = self_pick_allowed([SELF], Path(_tds), task="Which skills fit this plan?")
+            _b = self_pick_allowed([SELF], Path(_tds), task="which  skills fit this plan?")   # the score after the whisper
+            _n1 = len(json.loads(_sp.read_text(encoding="utf-8")))
+            _c = self_pick_allowed([SELF], Path(_tds), task="Pick skills for the audit")      # a new prompt: at the cap
+            _h = json.loads(_sp.read_text(encoding="utf-8"))
+        ok.append(_a[0] and _b[0] and _n1 == SELF_MAX and not _c[0] and len(_h) == SELF_MAX + 1
+                  and "plan" not in _sp.name + json.dumps(_h) and len(_h[-1][0]) == 12)
+        with _tf.TemporaryDirectory() as _tdi:              # 2026-10-28 warning 8: the index goes where --state points
+            _ix = _load(HERE / "index.py", "maestro_index")
+            _lr = Path(_tdi) / "lib"
+            for _i in range(_ix.MIN_DIRS):
+                (_lr / f"s{_i:02d}").mkdir(parents=True)
+                (_lr / f"s{_i:02d}" / "SKILL.md").write_text(f"---\nname: s{_i:02d}\ndescription: skill {_i}\n---\n",
+                                                             encoding="utf-8")
+            _L = Library(_lr, everything=False, cache=Path(_tdi) / "state")
+            ok.append(len(_L.skills) == _ix.MIN_DIRS and len(list((Path(_tdi) / "state").glob("index_*.json"))) == 1
+                      and not _ix.index_path(_lr, STATE).exists())
+        with _tf.TemporaryDirectory() as _tdf:              # 2026-10-28 warnings 5+6: forget lists, then deletes only the Maestro's
+            import contextlib
+            import io
+            _h = Path(_tdf) / "home"
+            _ch, _pc = _h / ".claude", _h / ".claude" / "plugins" / "cache" / "skill-maestro" / "skill-maestro"
+            _sd = _ch / "skill-maestro-state"
+            (_sd / "fastembed_cache").mkdir(parents=True)
+            (_sd / "ledger.jsonl").write_text('{"run_id": "r1"}\n{"run_id": "r2"}\n', encoding="utf-8")
+            (_sd / "index_0123456789ab.json").write_text("{}", encoding="utf-8")
+            for _v in ("1.0.0", "1.0.1"):
+                (_pc / _v / "skills").mkdir(parents=True)
+            (_pc / "1.0.0" / ".orphaned_at").write_text("1", encoding="utf-8")
+            _git, _lib, _doc = Path(_tdf) / "repo", Path(_tdf) / "lib", Path(_tdf) / "docs"
+            (_git / ".git").mkdir(parents=True)
+            (_lib / "a").mkdir(parents=True)
+            _doc.mkdir()
+            for _f in (_git / "ledger.jsonl", _lib / "ledger.jsonl", _lib / "a" / "SKILL.md", _doc / "notes.txt"):
+                _f.write_text("x", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()) as _o:
+                _dry = forget(_sd, _ch, home=_h)
+                _kept = _sd.is_dir() and (_pc / "1.0.0").is_dir()
+                _yes = forget(_sd, _ch, yes=True, home=_h)
+                _ref = [forget(p, _ch, yes=True, home=_h) for p in (_git, _lib, _doc, _h, _ch)]
+            ok.append(_dry == 0 and _kept and _yes == 0 and not _sd.exists() and not (_pc / "1.0.0").exists()
+                      and (_pc / "1.0.1").is_dir() and _ref == [2] * 5 and (_git / ".git").is_dir()
+                      and (_lib / "a" / "SKILL.md").is_file() and (_doc / "notes.txt").is_file()
+                      and "2 ledger rows" in _o.getvalue() and "DELETED 2 of 2" in _o.getvalue()
+                      and bool(_forget_refusal(Path(Path(_tdf).anchor), _h, _ch)))
+        with _tf.TemporaryDirectory() as _tdb:              # 2026-10-28 tour: breed refuses, never crashes, without its siblings
+            _br = breed([{"kind": "SCORE", "run": "r1", "chosen": ["ax-one", "by-two"]}], "r1",
+                        {"ax-one": {"does": "Reads."}, "by-two": {"does": "Writes."}}, lambda n: n[0], Path(_tdb))
+        ok.append("cross-breed, word-sex, skill-foundry" in _br.get("error", ""))
         ok.append(_opt(["try", "r", "s", "--", "python", "x.py", "--state", "Q"], "--state") is None
                   and _positional(["try", "r", "s", "--state", "S", "--", "python", "x.py"]) == ["try", "r", "s"])
         ok.append(task_kinds("write a limerick about my trading bot, make it fun")[0][0] in ("CREATE", "WRITE", "PLAY")
@@ -4828,7 +4979,7 @@ def _selftest() -> bool:
         hook = subprocess.run([sys.executable, "-I", "-X", "utf8", "-B", str(HERE / "maestro.py"), "whisper",
                                "--stdin", "--no-ledger", "--root", td, "--state", td],
                               input=json.dumps({"prompt": "Another Claude session sent a message: maestro, design it"}),
-                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+                              capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
         ok.append(hook.returncode == 0 and hook.stdout == "")
     with tempfile.TemporaryDirectory() as td:                # v20.1.3 (a stranger's row 6): --no-ledger writes nothing,
         lib, sd = Path(td) / "lib", Path(td) / "state"        # not health.json, the registry, the index or a self-pick
@@ -4856,6 +5007,140 @@ def _selftest() -> bool:
     return all(ok)
 
 
+STATE_MARKS = ("ledger.jsonl", "registry.json", "health.json", "self_picks.json")   # what makes a folder the Maestro's
+STATE_PREFIXES = ("index_", "meaning_", "cache_")
+
+
+def _du(d: Path) -> tuple[int, int]:
+    """(files, bytes) under d."""
+    n = b = 0
+    for r, _ds, fs in os.walk(d):
+        for f in fs:
+            try:
+                b += os.path.getsize(os.path.join(r, f))
+                n += 1
+            except OSError:
+                pass
+    return n, b
+
+
+def _forget_refusal(d: Path, home: Path, claude_home: Path) -> str:
+    """Why `forget` must not delete folder d, or '' when d is a Maestro history folder (or is not there)."""
+    d = d.resolve()
+    guarded = {p.resolve() for p in (home, Path.home(), claude_home, CLAUDE_HOME, HERE)}
+    if d.parent == d or d in guarded:
+        return "it is your home folder, Claude's folder, a drive root or this skill"
+    if any(d in g.parents for g in guarded):
+        return "it holds your home folder, Claude's folder or this skill"
+    if not d.is_dir():
+        return ""
+    names = [p.name for p in d.iterdir()]
+    if ".git" in names:
+        return "it holds a .git folder"
+    if "SKILL.md" in names or any(d.glob("*/SKILL.md")):
+        return "it holds a skill (a SKILL.md)"
+    if names and not any(n in STATE_MARKS or n.startswith(STATE_PREFIXES) for n in names):
+        return "it holds no Maestro file (" + ", ".join(STATE_MARKS) + ", index_*, meaning_*, cache_*)"
+    return ""
+
+
+def _rmtree(d: Path, failed: list[str]) -> None:
+    """Delete d; a read-only file is made writable and tried again; what still fails (in use) is collected."""
+    import shutil
+    import stat
+
+    def again(fn, p, _exc) -> None:
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            fn(p)
+        except OSError:
+            failed.append(str(p))
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(d, onexc=again)
+    else:
+        shutil.rmtree(d, onerror=again)
+
+
+def forget(state: Path, claude_home: Path, yes: bool = False, home: Path | None = None) -> int:
+    """v20.1.6 (2026-10-28, warnings 5 and 6): everything the Maestro keeps on this PC, and with yes=True delete its
+    history folder and the old plugin copies Claude Code marked orphaned. Claude Code removes those itself 14 days after
+    an update, but only while some plugin is still installed; uninstalling the Maestro removes neither. Never deletes the
+    active plugin copy, a folder that is not the Maestro's, settings or the meaning venv: those are named, not touched."""
+    home = Path(home or Path.home())
+    state = Path(state)
+    model = Path(os.environ.get("MAESTRO_MODEL_CACHE", claude_home / "skill-maestro-state" / "fastembed_cache"))
+    why = _forget_refusal(state, home, claude_home)
+    if why:
+        print(f"REFUSED: {state} is not deleted: {why}. Point --state at the Maestro's history folder.")
+        return 2
+    print(f"FORGET ({'deleting' if yes else 'dry run: nothing deleted; add --yes to delete'})")
+    doomed: list[Path] = []
+    if state.is_dir():
+        n, b = _du(state)
+        led = state / "ledger.jsonl"
+        rows = sum(1 for _ in led.open(encoding="utf-8", errors="replace")) if led.is_file() else 0
+        print(f"  history folder    {state}  ({n} files, {b / 1e6:.1f} MB, {rows} ledger rows)")
+        doomed.append(state)
+    else:
+        print(f"  history folder    {state}  (not there: nothing to delete)")
+    if model.is_dir() and state.resolve() in model.resolve().parents:
+        print(f"  meaning model     {model}  (inside the history folder: goes with it)")
+    elif model.is_dir() and "MAESTRO_MODEL_CACHE" not in os.environ:
+        print(f"  meaning model     {model}  ({_du(model)[1] / 1e6:.1f} MB; kept: it lives in the default history folder, "
+              "which `forget` without --state deletes)")
+    elif model.is_dir():
+        print(f"  meaning model     {model}  ({_du(model)[1] / 1e6:.1f} MB; kept: MAESTRO_MODEL_CACHE put it there; "
+              "delete it yourself)")
+    versions = sorted(p for p in claude_home.glob("plugins/cache/*/skill-maestro/*") if p.is_dir())
+    for p in versions:
+        if (p / ".orphaned_at").exists() and not (p == HERE.resolve() or p.resolve() in HERE.resolve().parents):
+            print(f"  old plugin copy   {p}  ({_du(p)[1] / 1e6:.1f} MB, marked orphaned by Claude Code)")
+            doomed.append(p)
+        else:
+            print(f"  plugin copy       {p}  (the active copy, or the one running now: kept; /plugin uninstall removes it)")
+    print("KEPT (named, not touched)")
+    venv = Path.home() / "venvs" / "maestro-meaning"
+    if venv.is_dir():
+        print(f"  meaning venv      {venv}  (you made it; delete the folder yourself if you want)")
+    for f in settings_files(Path.cwd() if (Path.cwd() / ".claude").is_dir() else None):
+        try:
+            if "maestro.py" in json.dumps(json.loads(f.read_text(encoding="utf-8")).get("hooks") or {}):
+                print(f"  a hook in         {f}  runs maestro.py: remove that entry by hand before you uninstall")
+        except (OSError, ValueError, AttributeError):
+            pass
+    if (Path.cwd() / SHARED_LEDGER).is_file():
+        print(f"  repo ledger       {Path.cwd() / SHARED_LEDGER}  (committed in your repo; delete it there if you want)")
+    if HERE.parent.resolve() == USER_LIB.resolve():
+        print(f"  this skill        {HERE}  (copied by hand: delete this folder to remove the skill)")
+    if versions:
+        print("TO LEAVE: in Claude Code type /plugin uninstall skill-maestro@skill-maestro, then "
+              "/plugin marketplace remove skill-maestro")
+    if not yes:
+        print("Nothing was deleted. Run it again with --yes to delete the history folder and the old plugin copies "
+              "listed above.")
+        return 0
+    if (state / "meaning_server.json").is_file():           # the meaning helper keeps the model open: stop it first
+        M_ = _load(HERE / "meaning.py", "meaning")
+        r = M_.ask_server({"op": "stop"}, 5.0, state)
+        pid = (r or {}).get("stopped")
+        for _ in range(20):
+            if not pid or not M_._alive(int(pid)):
+                break
+            time.sleep(0.25)
+        print(f"  stopped the meaning helper (pid {pid})" if pid else "  no meaning helper answered (none running)")
+    failed: list[str] = []
+    before = sum(_du(p)[1] for p in doomed)
+    for p in doomed:
+        _rmtree(p, failed)
+    after = sum(_du(p)[1] for p in doomed if p.exists())
+    print(f"DELETED {len([p for p in doomed if not p.exists()])} of {len(doomed)} folder(s), {(before - after) / 1e6:.1f} MB freed")
+    if failed:
+        print(f"  {len(failed)} file(s) are in use and stayed, e.g. {failed[0]}: close Claude Code, then run "
+              f"forget --yes again")
+        return 1
+    return 0
+
+
 VALUED = ("--root", "--state", "--top", "--probes", "--project", "--budget", "--by", "--subject", "--question",
           "--questions", "--on", "--write", "--concepts", "--concepts2", "--quote", "--note", "--close-older-than",
           "--like", "--null", "--before", "--days", "--split", "--keys", "--grid", "--passes", "--workers", "--timeout",
@@ -4863,7 +5148,7 @@ VALUED = ("--root", "--state", "--top", "--probes", "--project", "--budget", "--
           "--picks", "--lean", "--direct", "--ask")
 FLAGS = ("--graph", "--pool", "--json", "--plain", "--quick", "--keywords-only", "--full", "--custom-only", "--auto", "--no-ledger", "--misses", "--no-infer",
          "--no-kinds", "--brief", "--plain-words", "--ci", "--armed", "--compare", "--dry", "--hook", "--stdin", "--switches",
-         "--power", "--write", "--personas", "--stamp", "--observed-only", "--discriminative", "--listing")
+         "--power", "--write", "--personas", "--stamp", "--observed-only", "--discriminative", "--listing", "--yes")
 PLAIN_WORDS = ("PLAIN WORDS: pick = a skill it chose. [words] = chosen because your words match its description; "
                "[meaning] = chosen because the task's operations match what it does; [both] = both, the strongest. "
                "S1/S2/S3 = how much evidence backs it (S1 best). FIT = run it on your real file and say works or misfit. "
@@ -4918,6 +5203,10 @@ def main(argv: list[str]) -> int:
         return 0
     if "--selftest" in _own(argv):            # a `--selftest` after `--` belongs to the tried command, not to us
         return 0 if _selftest() else 1
+    if "--no-ledger" in _own(argv):           # v20.1.6: the modules beside this file (meaning, modes, personal) read it too
+        os.environ["MAESTRO_NO_LEDGER"] = "1"
+    if _positional(argv)[:1] == ["forget"]:   # v20.1.6: before the dials or the library, which write into the folder it deletes
+        return forget(Path(_opt(argv, "--state", STATE)), CLAUDE_HOME, yes="--yes" in _own(argv))
     global DIAL_SHA
     try:
         dials, DIAL_SHA = load_dials()
@@ -4933,7 +5222,7 @@ def main(argv: list[str]) -> int:
         C = _load(HERE / "concert.py", "concert")
         raw = sys.stdin.read() if "--stdin" in argv else " ".join(_positional(argv)[1:])
         if "--stdin" in argv:                                   # 2026-10-24 (scenario test A): with no index yet the
-            import io                                           # full path below reads stdin again; give it the prompt
+            import io  # full path below reads stdin again; give it the prompt
             sys.stdin = io.StringIO(raw)
         try:
             hook_in = json.loads(raw) if raw.strip().startswith("{") else {}
@@ -4975,7 +5264,7 @@ def main(argv: list[str]) -> int:
     if not keep:
         st.append = lambda row: None                   # nothing is written; history already there is still read
     extra = with_user_library(root, extra)
-    lib = Library(root, tuple(extra), everything="--custom-only" not in flags, keep=st.keep)
+    lib = Library(root, tuple(extra), everything="--custom-only" not in flags, keep=st.keep, cache=st.d)
     lib.overrides, lib.plugins = skill_overrides(project), plugin_states(project)
     lib.project = project
     lib.cache_dir = st.d
@@ -5270,7 +5559,7 @@ def main(argv: list[str]) -> int:
             return 2
         try:
             r = subprocess.run(exe, capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace",
-                               env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+                               env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"}, check=False)
             out, code = (r.stdout + r.stderr), r.returncode
         except (OSError, subprocess.TimeoutExpired) as exc:
             out, code = f"{type(exc).__name__}: {exc}", -1
@@ -5386,12 +5675,12 @@ def main(argv: list[str]) -> int:
             print("  " + ", ".join(names))
             return 0
         try:
-            r = subprocess.run(["claude", "-p", "/context"], capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL)
+            r = subprocess.run(["claude", "-p", "/context"], capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL, check=False)
             out = r.stdout + r.stderr
         except (OSError, subprocess.TimeoutExpired) as exc:
             print(f"BUILTINS_REFUSED: could not run `claude -p /context` ({type(exc).__name__}); edit builtins.json by hand")
             return 2
-        names = re.findall(r"^\|\s*([a-z0-9][a-z0-9:_-]*)\s*\|\s*Built-in\s*\|", out, re.M)
+        names = re.findall(r"^\|\s*([a-z0-9][a-z0-9:_-]*)\s*\|\s*Built-in\s*\|", out, re.MULTILINE)
         if not names:
             print("BUILTINS_REFUSED: /context listed no Built-in rows (is this a Claude Code session?); builtins.json unchanged")
             return 2
@@ -5436,7 +5725,7 @@ def main(argv: list[str]) -> int:
             extra["ci"] = eval_ci(res["vec"])
         if "--power" in flags:                              # v16 O3: the significance budget of this probe set
             from math import comb
-            b = next(k for k in range(1, 60) if 2 * sum(comb(k, i) for i in range(0, 1)) / 2 ** k < 0.05)
+            b = next(k for k in range(1, 60) if 2 * sum(comb(k, i) for i in range(1)) / 2 ** k < 0.05)
             extra["power"] = {"n": res["n"], "min_clean_gain": b,
                               "note": f"on {res['n']} probes a change is DIFFERENT (McNemar p<0.05) only with >= {b} probes "
                                       f"won and none lost, or more when some are lost; a +1..+{b - 1} move is noise"}
@@ -5468,7 +5757,7 @@ def main(argv: list[str]) -> int:
         (work / "modules.json").write_text(json.dumps(mods), encoding="utf-8")
         (work / "pipeline.json").write_text(json.dumps(pipe), encoding="utf-8")
         r = subprocess.run([sys.executable, str(comp), "run", str(work / "modules.json"), str(work / "pipeline.json"),
-                            "--receipt", str(work / "receipt.json")], cwd=str(work))
+                            "--receipt", str(work / "receipt.json")], cwd=str(work), check=False)
         return r.returncode
     elif cmd == "trend":
         evs = [r for r in st.rows() if r.get("kind") == "EVAL"]
@@ -5533,11 +5822,12 @@ def main(argv: list[str]) -> int:
                              if P.is_private(st.d) else "off. `share` may write a ratings file for you to send; nothing is sent by itself."))
     elif cmd == "personal":                                  # 2026-10-24: your own Maestro, learned from your ratings and use
         P = _load(HERE / "personal.py", "personal")
-        if not meaning_ok():
-            print("PERSONAL needs the meaning model (fastembed). Run this with the maestro-meaning venv python; see SHARING.md.")
-            return 2
         rows = st.rows()
         if len(pos) > 1 and pos[1] == "eval":
+            if not meaning_ok():                             # v20.1.6: only the eval ranks in this process
+                print("PERSONAL EVAL needs fastembed in this Python: run it with ~/venvs/maestro-meaning's python. "
+                      "To make the venv: " + MEANING_SETUP)
+                return 2
             cut_s = _opt(argv, "--before") or "2026-10-16"
             cut = time.mktime(time.strptime(cut_s, "%Y-%m-%d"))
             probes = Path(probes_opt) if probes_opt else HERE / "evals" / "probes_walkforward_2026-10-16.tsv"
@@ -5545,14 +5835,19 @@ def main(argv: list[str]) -> int:
             res = P.eval_walkforward(M, M._word_ranker(), st.d, rows, M.read_probes(probes), cut, WEIGHTS.get("personal", 1.0))
             print(json.dumps({"before": cut_s, "probes": probes.name, **res}))
         else:
-            print(P.report(_MEANING["mod"], st.d, rows))
+            print(P.report(None, st.d, rows))                # the report counts history; it embeds nothing
+            print("  in scores: " + ("ON (fastembed in this Python)" if meaning_ok() else
+                                     "ON (through the meaning helper of ~/venvs/maestro-meaning)" if meaning_model(st.d) is not None
+                                     else "OFF, no meaning model reachable. To turn it on: " + MEANING_SETUP))
     elif cmd == "share" and _load(HERE / "personal.py", "personal").is_private(st.d) and "--help" not in flags and "--preview" not in argv:
         print("PRIVATE: nothing written. Your Maestro is in private mode (the default), so `share` makes no file. "
               "`maestro.py private off` allows it; `share --preview` prints what it would hold; nothing is ever sent by itself.")
         return 0
     elif cmd in ("share", "intake", "community", "contribute"):   # 2026-10-24 (the user): ratings from everyone who uses the skill
+        # v20.1.6: the state folder in use (an explicit --state stands alone, as everywhere else); intake gets only its
+        # paths, so the value of --state is never read as a bundle folder
         return _load(HERE / "community.py", "maestro_community").run(
-            argv[argv.index(cmd):], st, STATE, hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12],
+            pos if cmd == "intake" else argv[argv.index(cmd):], st, st.d, hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12],
             private=_load(HERE / "personal.py", "personal").is_private(st.d))
     elif cmd == "index":                                     # v15: the prepared index's state, or a forced rebuild
         return _load(HERE / "index.py", "maestro_index").cli_index(argv, lib, st, root, sys.modules[__name__])
